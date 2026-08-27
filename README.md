@@ -1,0 +1,94 @@
+# Life Insurance Pricing & Profitability Engine
+
+A reproducible actuarial pricing project for a simplified U.S. 20-year level term life product.
+
+## Project objective
+
+For each synthetic applicant/policy, estimate expected mortality, lapse, claims, expenses,
+premium requirements, present value of profit, and profit margin. Then aggregate results
+to portfolio segments and stress key pricing assumptions.
+
+## 12-loop development roadmap
+
+1. **Specification & actuarial contract** — lock product, assumptions, inputs, outputs, validation gates.
+2. **Core projection engine** — survival, mortality, lapse, in-force and discounting.
+3. **Mortality data layer** — import/calibrate public mortality table data.
+4. **Synthetic portfolio generator** — create realistic applicant/policy records.
+5. **Gross premium engine** — solve premiums for target profitability.
+6. **Expense & commission engine** — acquisition, maintenance, percentage-of-premium expenses.
+7. **Profitability engine** — annual cash flows, PV profit, margin, IRR-style metrics.
+8. **Experience analytics** — A/E mortality and lapse by segment/duration.
+9. **Scenario & sensitivity engine** — mortality, lapse, interest, expenses, premium stresses.
+10. **Statistical challenger** — interpretable mortality/lapse model vs actuarial baseline.
+11. **Visualization & executive outputs** — portfolio diagnostics, pricing curves, scenario charts.
+12. **Audit, refactor & GitHub release** — reproducibility, tests, documentation, model limitations.
+
+## Status: all 12 loops complete
+
+All twelve roadmap loops have a working implementation and test coverage under `tests/`
+(TEST_SPEC.md Gates A-E). Loop 12 itself (this section, `LICENSE`, `MODEL_LIMITATIONS.md`) is the
+audit/refactor/release pass.
+
+| Loop | Module(s) |
+|---|---|
+| 1. Spec & actuarial contract | `PROJECT_SPEC.md`, `ACTUARIAL_ASSUMPTIONS.md`, `TEST_SPEC.md`, `config/assumptions.yaml`, `src/life_pricing/config.py` |
+| 2. Core projection engine | `src/life_pricing/projection.py` |
+| 3. Mortality data layer | `src/life_pricing/mortality.py` |
+| 4. Synthetic portfolio generator | `src/life_pricing/portfolio.py` |
+| 5. Gross premium engine | `src/life_pricing/premium.py` |
+| 6. Expense & commission engine | `src/life_pricing/cashflow.py` (`year_expenses`) |
+| 7. Profitability engine | `src/life_pricing/cashflow.py` (`build_policy_cash_flows`, `summarize_policy`) |
+| 8. Experience analytics (A/E) | `src/life_pricing/experience.py` |
+| 9. Scenario & sensitivity engine | `src/life_pricing/scenario.py` |
+| 10. Statistical challenger | `src/life_pricing/challenger.py` |
+| 11. Visualization & executive outputs | `src/life_pricing/visualization.py`, `scripts/generate_executive_report.py` |
+| 12. Audit, refactor & GitHub release | This README section, `LICENSE`, `MODEL_LIMITATIONS.md` |
+
+## Run (fresh environment)
+
+**Step 0 -- get the raw mortality data.** `data/raw/` is intentionally *not* committed to git
+(see `.gitignore`) because it holds a third-party data export. Before running tests or the
+engine, download the SOA 2015 VBT Smoker Distinct select-and-ultimate tables from
+[mort.soa.org](https://mort.soa.org) (Table Identity 3265 family: Male/Female x Smoker/Non-Smoker,
+Age Nearest Birthday) as `.xls` and place them at exactly:
+
+```
+data/raw/Non_Smoker_Female.xls
+data/raw/Non_Smoker_Male.xls
+data/raw/Smoke_Female.xls      # female smoker
+data/raw/Smoker_Male.xls
+```
+
+See `docs/DATA_SOURCES.md` for the full provenance note (including why this project ended up on
+2015 VBT rather than the 2017 CSO originally targeted in Loop 1).
+
+**Then:**
+
+```bash
+python -m pip install -r requirements.txt
+pytest -q                                          # full test suite (Gates A-E)
+PYTHONPATH=src python3 scripts/generate_executive_report.py  # end-to-end run + charts
+```
+
+No network access is required to run the test suite once `data/raw/` is populated and
+dependencies are installed (TEST_SPEC.md Gate E).
+
+## Current v1 product
+
+- Product: 20-year level term life
+- Issue ages: 25–60
+- Premium mode: annual
+- Benefit timing: end of year of death
+- Mortality basis: SOA 2015 VBT Smoker Distinct select-and-ultimate tables, by sex and smoker
+  status, with an illustrative underwriting-class multiplier layered on top (corrected from the
+  2017 CSO originally targeted in Loop 1 -- see `docs/DATA_SOURCES.md`)
+- Portfolio data: synthetic applicant/policy data (Loop 4); Loop 8's "actual" experience is a
+  labeled simulation, not real experience data -- see `ACTUARIAL_ASSUMPTIONS.md`
+- Lapse: duration-based deterministic base assumption in v1
+- Pricing target: solve for a target PV profit margin (closed-form; see `src/life_pricing/premium.py`)
+
+## Known limitations
+
+See `MODEL_LIMITATIONS.md` for the full list (data substitutions, illustrative
+underwriting-class relativities, simulated rather than real experience data, and everything
+listed as out of scope in `PROJECT_SPEC.md` section 9).

@@ -1,0 +1,3 @@
+"""Life Insurance Pricing & Profitability Engine."""
+
+__version__ = "0.1.0"

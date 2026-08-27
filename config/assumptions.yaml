@@ -1,0 +1,111 @@
+project:
+  name: "Life Insurance Pricing & Profitability Engine"
+  version: "0.1.0"
+
+product:
+  product_type: "20-year level term"
+  issue_age_min: 25
+  issue_age_max: 60
+  term_years: 20
+  premium_mode: "annual"
+  benefit_timing: "end_of_year"
+  face_amount_min: 100000
+  face_amount_max: 1000000
+
+mortality:
+  # NOTE (Loop 3): the raw files actually available under data/raw/ are the
+  # SOA 2015 VBT Smoker Distinct select-and-ultimate tables (Table Identity
+  # 3265 family), not the 2017 CSO tables originally targeted in the Loop 1
+  # draft of this document. This value was corrected to match the real
+  # source data rather than silently keeping an inaccurate label -- see
+  # docs/DATA_SOURCES.md for the full explanation.
+  reference_basis: "2015 VBT Smoker Distinct tables (SOA mort.soa.org), select & ultimate, by sex and smoker status"
+  # Illustrative underwriting-class relativities. The raw tables split
+  # mortality by sex and smoker status only; they do not encode
+  # underwriting class (Preferred Plus / Preferred / Standard), which
+  # PROJECT_SPEC.md requires as a policy dimension. These multipliers are
+  # a V1 simplification applied multiplicatively to the base table q_x,
+  # not a filed industry relativity -- see ACTUARIAL_ASSUMPTIONS.md.
+  underwriting_class_multiplier:
+    "Preferred Plus": 0.60
+    "Preferred": 0.80
+    "Standard": 1.00
+  stress_multiplier: 1.0
+
+lapse:
+  by_duration:
+    1: 0.08
+    2: 0.07
+    3: 0.06
+    4: 0.05
+    5: 0.05
+    6: 0.04
+    7: 0.04
+    8: 0.04
+    9: 0.04
+    10: 0.04
+    11: 0.03
+    12: 0.03
+    13: 0.03
+    14: 0.03
+    15: 0.03
+    16: 0.03
+    17: 0.03
+    18: 0.03
+    19: 0.03
+    20: 0.03
+
+interest:
+  annual_effective_rate: 0.04
+
+expenses:
+  acquisition_fixed: 150.0
+  acquisition_pct_first_year_premium: 0.25
+  renewal_pct_premium: 0.05
+  maintenance_per_inforce_year: 60.0
+
+profit:
+  target_pv_margin: 0.10
+
+synthetic_data:
+  random_seed: 20260827
+  n_policies: 10000
+  # V1 illustrative portfolio-composition assumptions (Loop 4). These shape
+  # only the synthetic book of business, not pricing/mortality -- but are
+  # still declared here rather than hard-coded, per this project's
+  # assumption-governance rule.
+  sex_distribution:
+    male: 0.50
+    female: 0.50
+  smoker_distribution:
+    nonsmoker: 0.85
+    smoker: 0.15
+  # Must match mortality.underwriting_class_multiplier's categories exactly
+  # (validated in life_pricing.config.validate_assumptions).
+  underwriting_class_distribution:
+    "Preferred Plus": 0.20
+    "Preferred": 0.40
+    "Standard": 0.40
+  distribution_channel:
+    "Career Agent": 0.35
+    "Independent Agent": 0.35
+    "Direct to Consumer": 0.15
+    "Broker Dealer": 0.15
+  state_region:
+    "Northeast": 0.20
+    "Midwest": 0.22
+    "South": 0.35
+    "West": 0.23
+  issue_year_min: 2016
+  issue_year_max: 2025
+  face_amount_round_to: 10000
+
+# Loop 8 (experience analytics) needs a stochastic "actual" outcome per
+# policy to compare against the pricing assumptions above (the "expected"
+# basis). Since this project has no real policyholder experience data, that
+# actual outcome is simulated using a separately declared "true" basis --
+# NOT a pricing assumption, and never used by the pricing engine (Loops
+# 2-7). See ACTUARIAL_ASSUMPTIONS.md for the full explanation.
+experience_simulation:
+  true_mortality_multiplier: 1.15
+  true_lapse_multiplier: 0.85
