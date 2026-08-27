@@ -156,8 +156,11 @@ class ProjectAssumptions:
     # -- experience simulation (Loop 8 "true" basis, NOT a pricing assumption) --
 
     @property
-    def true_mortality_multiplier(self) -> float:
-        return float(self.raw["experience_simulation"]["true_mortality_multiplier"])
+    def true_mortality_multiplier_by_duration(self) -> dict[int, float]:
+        return {
+            int(k): float(v)
+            for k, v in self.raw["experience_simulation"]["true_mortality_multiplier_by_duration"].items()
+        }
 
     @property
     def true_lapse_multiplier(self) -> float:
@@ -272,10 +275,21 @@ def validate_assumptions(raw: dict[str, Any]) -> None:
         _require_probability_distribution(synthetic[field_name], f"synthetic_data.{field_name}")
 
     experience_simulation = raw["experience_simulation"]
-    _require_positive(
-        float(experience_simulation["true_mortality_multiplier"]),
-        "experience_simulation.true_mortality_multiplier",
-    )
+    true_mortality_by_duration = experience_simulation["true_mortality_multiplier_by_duration"]
+    expected_sim_durations = set(range(1, int(product["term_years"]) + 1))
+    actual_sim_durations = {int(k) for k in true_mortality_by_duration}
+    if actual_sim_durations != expected_sim_durations:
+        missing = sorted(expected_sim_durations - actual_sim_durations)
+        extra = sorted(actual_sim_durations - expected_sim_durations)
+        raise AssumptionValidationError(
+            "experience_simulation.true_mortality_multiplier_by_duration must cover "
+            f"every policy year exactly; missing={missing}, extra={extra}"
+        )
+    for duration, multiplier in true_mortality_by_duration.items():
+        _require_positive(
+            float(multiplier),
+            f"experience_simulation.true_mortality_multiplier_by_duration[{duration}]",
+        )
     _require_positive(
         float(experience_simulation["true_lapse_multiplier"]),
         "experience_simulation.true_lapse_multiplier",

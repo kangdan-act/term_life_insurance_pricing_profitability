@@ -79,7 +79,9 @@ def test_expected_qx_matches_pricing_mortality_curve(assumptions, small_portfoli
 
 def test_overall_ae_close_to_one_when_true_equals_expected(assumptions):
     raw = deepcopy(assumptions.raw)
-    raw["experience_simulation"]["true_mortality_multiplier"] = 1.0
+    raw["experience_simulation"]["true_mortality_multiplier_by_duration"] = {
+        duration: 1.0 for duration in raw["experience_simulation"]["true_mortality_multiplier_by_duration"]
+    }
     raw["experience_simulation"]["true_lapse_multiplier"] = 1.0
     neutral = ProjectAssumptions(raw=raw)
 
@@ -96,8 +98,11 @@ def test_overall_ae_reflects_configured_true_multipliers(assumptions):
     exposures = simulate_policy_exposures(assumptions, portfolio, random_seed=3)
     result = overall_actual_to_expected(exposures)
 
-    # true_mortality_multiplier=1.15, true_lapse_multiplier=0.85 (config default)
-    assert result["ae_mortality"] > 1.0
+    # config default (Loop 12): true_mortality_multiplier_by_duration is the
+    # real SOA-ILEC-derived curve, entirely < 1.0 (0.7354-0.9093), so actual
+    # mortality runs lower than expected; true_lapse_multiplier=0.85 (still
+    # illustrative) means actual lapse also runs lower than expected.
+    assert result["ae_mortality"] < 1.0
     assert result["ae_lapse"] < 1.0
 
 

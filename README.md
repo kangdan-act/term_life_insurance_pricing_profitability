@@ -80,15 +80,22 @@ dependencies are installed (TEST_SPEC.md Gate E).
 - Premium mode: annual
 - Benefit timing: end of year of death
 - Mortality basis: SOA 2015 VBT Smoker Distinct select-and-ultimate tables, by sex and smoker
-  status, with an illustrative underwriting-class multiplier layered on top (corrected from the
-  2017 CSO originally targeted in Loop 1 -- see `docs/DATA_SOURCES.md`)
+  status, with an underwriting-class multiplier layered on top (corrected from the 2017 CSO
+  originally targeted in Loop 1 -- see `docs/DATA_SOURCES.md`). As of Loop 12, the
+  underwriting-class multiplier is derived from real SOA ILEC 2012-2019 Mortality Experience
+  Report A/E data, not an arbitrary guess -- see `docs/DATA_SOURCES.md`.
 - Portfolio data: synthetic applicant/policy data (Loop 4); Loop 8's "actual" experience is a
-  labeled simulation, not real experience data -- see `ACTUARIAL_ASSUMPTIONS.md`
-- Lapse: duration-based deterministic base assumption in v1
+  labeled simulation -- as of Loop 12 its mortality basis is a real, ILEC-derived duration curve,
+  while its lapse basis remains an illustrative scalar (no real experience data was assembled
+  into a full policy-level dataset) -- see `ACTUARIAL_ASSUMPTIONS.md`
+- Lapse: duration-based assumption; as of Loop 12 this is the real SOA "2009-13 US Individual
+  Life Persistency Update" 20-Year level term lapse curve, including the real end-of-level-period
+  shock lapse -- see `docs/DATA_SOURCES.md`
 - Pricing target: solve for a target PV profit margin (closed-form; see `src/life_pricing/premium.py`)
 
 ## Known limitations
 
-See `MODEL_LIMITATIONS.md` for the full list (data substitutions, illustrative
-underwriting-class relativities, simulated rather than real experience data, and everything
-listed as out of scope in `PROJECT_SPEC.md` section 9).
+See `MODEL_LIMITATIONS.md` for the full list (mortality-basis correction, the underwriting-class
+relativity and lapse table's real-data provenance and remaining approximations, simulated rather
+than fully-real experience data, and everything listed as out of scope in `PROJECT_SPEC.md`
+section 9).

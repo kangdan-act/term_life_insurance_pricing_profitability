@@ -10,10 +10,13 @@ a genuine A/E analytics engine rather than a fabricated one, this module:
    exact same numbers the pricing engine (Loops 2-7) uses.
 2. Simulates one stochastic *actual* outcome per policy-year of exposure,
    using a separately declared "true" experience basis
-   (config/assumptions.yaml: experience_simulation.true_mortality_multiplier
-   / true_lapse_multiplier), which deliberately differs from the pricing
-   assumptions -- see ACTUARIAL_ASSUMPTIONS.md -- so the resulting A/E
-   ratios are not trivially 1.0.
+   (config/assumptions.yaml: experience_simulation
+   .true_mortality_multiplier_by_duration / true_lapse_multiplier), which
+   deliberately differs from the pricing assumptions -- see
+   ACTUARIAL_ASSUMPTIONS.md -- so the resulting A/E ratios are not
+   trivially 1.0. The mortality multiplier varies by policy duration
+   (real, SOA-ILEC-derived); the lapse multiplier remains a flat
+   illustrative scalar -- see ACTUARIAL_ASSUMPTIONS.md for why.
 
 Per AGENTS.md's rule against mixing actual experience with expected
 assumptions without labeling them: every function and output column here is
@@ -99,7 +102,7 @@ def simulate_policy_exposures(
     seed = random_seed if random_seed is not None else assumptions.random_seed
     rng = np.random.default_rng(seed)
 
-    true_mortality_multiplier = assumptions.true_mortality_multiplier
+    true_mortality_multiplier_by_duration = assumptions.true_mortality_multiplier_by_duration
     true_lapse_multiplier = assumptions.true_lapse_multiplier
     lapse_rates = assumptions.lapse_rates
     term_years = assumptions.term_years
@@ -123,6 +126,7 @@ def simulate_policy_exposures(
             expected_qx = expected_qx_curve[t - 1]
             expected_lapse_rate = lapse_rates[t]
 
+            true_mortality_multiplier = true_mortality_multiplier_by_duration[t]
             true_qx = min(max(expected_qx * true_mortality_multiplier, 0.0), 1.0)
             true_lapse_rate = min(max(expected_lapse_rate * true_lapse_multiplier, 0.0), 1.0)
 

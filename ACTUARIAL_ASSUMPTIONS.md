@@ -17,9 +17,15 @@ Reference basis (corrected in Loop 3 to match the actual source data -- see belo
 - Underwriting class (Preferred Plus / Preferred / Standard) is required by PROJECT_SPEC.md as a
   policy dimension, but the raw tables split by sex and smoker status only -- they do not encode
   underwriting class. A multiplicative underwriting-class relativity is applied on top of the base
-  table (config/assumptions.yaml: mortality.underwriting_class_multiplier = Preferred Plus 0.60,
-  Preferred 0.80, Standard 1.00). These are V1 illustrative relativities, not filed industry
-  rates, and are declared as configuration exactly like every other assumption in this document.
+  table (config/assumptions.yaml: mortality.underwriting_class_multiplier = Preferred Plus 0.6357,
+  Preferred 0.7425, Standard 1.0000). **Updated in Loop 12** from V1 illustrative guesses to values
+  derived from real published data: the SOA "Individual Life Experience Committee (ILEC) 2012-2019
+  Mortality Experience Report" appendices, Appendix K1 (nonsmoker actual-to-2015-VBT-expected
+  ratios by underwriting-class rank and face-amount band), averaged across the 100k-249k /
+  250k-499k / 500k-999k face bands and normalized so the worst (Standard) class = 1.0. These are
+  still not filed company-specific rates -- they are relativities implied by aggregate industry
+  experience data -- but they replace arbitrary guesses with a cited, reproducible source. See
+  `docs/DATA_SOURCES.md` for the exact source cells and averaging methodology.
 - A mortality stress multiplier (config: mortality.stress_multiplier) is applied multiplicatively
   to q_x on top of the underwriting-class relativity, for sensitivity/scenario testing (Loop 9).
 
@@ -41,16 +47,31 @@ of being fully reproducible on a normal development machine without paid data.
 
 ## Lapse
 
-Base duration lapse assumption:
+Base duration lapse assumption. **Updated in Loop 12**: this table was originally an illustrative
+declining curve (8% -> 3%); it is now the real 20-Year level term lapse-rate-by-duration curve
+from the SOA "2009-13 US Individual Life Persistency Update" report, sheet "Term -Part 1", the
+"20-Year level term" Policy Lapse Rate block. See `docs/DATA_SOURCES.md` for the exact source
+cells.
 
-| Policy year | Annual lapse |
-|---|---:|
-| 1 | 8.0% |
-| 2 | 7.0% |
-| 3 | 6.0% |
-| 4–5 | 5.0% |
-| 6–10 | 4.0% |
-| 11–20 | 3.0% |
+| Policy year | Annual lapse | Policy year | Annual lapse |
+|---|---:|---|---:|
+| 1 | 6.0% | 11 | 3.0% |
+| 2 | 5.5% | 12 | 2.7% |
+| 3 | 4.7% | 13 | 2.7% |
+| 4 | 4.3% | 14 | 2.5% |
+| 5 | 4.0% | 15 | 2.7% |
+| 6 | 3.7% | 16 | 2.9% |
+| 7 | 3.4% | 17 | 2.9% |
+| 8 | 3.2% | 18 | 3.4% |
+| 9 | 3.1% | 19 | 4.2% |
+| 10 | 3.0% | 20 | **31.0%** |
+
+Duration 20's 31.0% rate is the well-known "shock lapse" that occurs at the end of a level-term
+product's level-premium period: premiums jump to attained-age (annually renewable term) rates at
+the start of policy year 21, so most surviving, non-converting policyholders let the policy lapse
+rather than pay the much higher renewal premium. This is a real, material feature of 20-year term
+lapse experience, not an outlier to be smoothed away -- it now flows directly into the pricing
+engine's premium solve and cash-flow projections (Loops 5-6) rather than being averaged out.
 
 Lapse is modeled as a competing decrement after mortality within each annual period:
 L_t = I_t * (1-q_t) * lapse_t
@@ -91,16 +112,52 @@ The pricing engine (Loops 2-7) uses only the assumptions declared above: the 201
 tables, the base lapse table, 4.0% interest, and the stated expenses. Loop 8 (experience
 analytics / A-E) needs something different: a stochastic *actual* outcome per synthetic policy to
 compare against those *expected* assumptions. Because this project has no real policyholder
-experience data, that actual outcome is simulated using a second, separately declared basis:
+experience data, that actual outcome is simulated using a second, separately declared basis.
+
+**Updated in Loop 12**: `true_mortality_multiplier` was originally one flat scalar (1.15, i.e.
+"actual mortality runs 15% worse than priced"). It is now a duration-keyed curve,
+`true_mortality_multiplier_by_duration`, derived from the SOA ILEC 2012-2019 Mortality Experience
+Report, Appendix H (20-year term, actual-to-2015-VBT-expected ratios by duration):
+
+| Duration | Multiplier | Duration | Multiplier |
+|---|---:|---|---:|
+| 1 | 0.8525 | 11 | 0.7525 |
+| 2 | 0.8576 | 12 | 0.7525 |
+| 3 | 0.9093 | 13 | 0.7525 |
+| 4 | 0.8064 | 14 | 0.7525 |
+| 5 | 0.8064 | 15 | 0.7525 |
+| 6 | 0.7902 | 16 | 0.7354 |
+| 7 | 0.7902 | 17 | 0.7354 |
+| 8 | 0.7902 | 18 | 0.7354 |
+| 9 | 0.7902 | 19 | 0.7354 |
+| 10 | 0.7902 | 20 | 0.7354 |
+
+Notably, real ILEC experience for this product runs *better* than the 2015 VBT expected basis at
+every duration (all multipliers < 1.0) -- the opposite direction from the earlier illustrative
+1.15 guess. This is a plausible and common pattern (insured lives who buy 20-year term and pass
+underwriting tend to experience mortality somewhat better than a broad industry-average table
+would predict) and is exactly the kind of thing a real A/E study is meant to surface; it was kept
+as-is rather than adjusted to match the old assumption, per AGENTS.md's rule against silently
+altering assumptions to preserve a prior result.
+
+Appendix H's most recent issue-year cohort (2010-2017) does not yet have observed experience past
+duration 10 (recent business hasn't aged that far), so durations 11-20 above are spliced in from
+the next-older issue-year cohort (2000-2009) at the same durations -- the only cohort in the
+report with full duration 1-20 coverage. See `docs/DATA_SOURCES.md` for the exact source cells.
+
+`true_lapse_multiplier` remains an unchanged, illustrative flat scalar (0.85): no second,
+independent real "actual" lapse dataset was available (the SOA persistency report above was
+already consumed as the *expected* lapse basis itself, so it cannot also serve as an independent
+"actual" comparison).
 
 | Parameter | Value | Meaning |
 |---|---:|---|
-| `experience_simulation.true_mortality_multiplier` | 1.15 | Simulated "true" mortality runs 15% higher than the pricing (expected) mortality basis. |
-| `experience_simulation.true_lapse_multiplier` | 0.85 | Simulated "true" lapse runs 15% lower than the pricing (expected) lapse basis. |
+| `experience_simulation.true_mortality_multiplier_by_duration` | see table above | Real, SOA-ILEC-derived, duration-varying. |
+| `experience_simulation.true_lapse_multiplier` | 0.85 | Still illustrative: simulated "true" lapse runs 15% lower than the pricing (expected) lapse basis. |
 
-These values exist purely so Loop 8's actual-to-expected (A/E) ratios are not trivially 1.0 --
-they let the experience analytics engine demonstrate a realistic "mortality worse than priced,
-lapse better than priced" pattern. They are:
+These values exist so Loop 8's actual-to-expected (A/E) ratios are not trivially 1.0 -- they let
+the experience analytics engine demonstrate a realistic, data-grounded divergence between actual
+and priced experience. They are:
 
 - Never read by the pricing engine (`life_pricing.premium`, `life_pricing.cashflow`,
   `life_pricing.projection`) -- only by `life_pricing.experience`.

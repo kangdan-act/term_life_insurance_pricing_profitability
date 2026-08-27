@@ -20,40 +20,50 @@ mortality:
   # source data rather than silently keeping an inaccurate label -- see
   # docs/DATA_SOURCES.md for the full explanation.
   reference_basis: "2015 VBT Smoker Distinct tables (SOA mort.soa.org), select & ultimate, by sex and smoker status"
-  # Illustrative underwriting-class relativities. The raw tables split
-  # mortality by sex and smoker status only; they do not encode
-  # underwriting class (Preferred Plus / Preferred / Standard), which
-  # PROJECT_SPEC.md requires as a policy dimension. These multipliers are
-  # a V1 simplification applied multiplicatively to the base table q_x,
-  # not a filed industry relativity -- see ACTUARIAL_ASSUMPTIONS.md.
+  # Underwriting-class relativities derived (Loop 12 rigor upgrade) from the
+  # SOA "Individual Life Experience Committee (ILEC) 2012-2019 Mortality
+  # Experience Report" appendices, Appendix K1 (nonsmoker A/E-to-2015-VBT by
+  # underwriting-class rank), averaged across the 100k-249k / 250k-499k /
+  # 500k-999k face-amount bands and normalized so Standard = 1.0. These
+  # replace the earlier illustrative guesses -- see docs/DATA_SOURCES.md
+  # for the exact source cells and averaging methodology.
   underwriting_class_multiplier:
-    "Preferred Plus": 0.60
-    "Preferred": 0.80
-    "Standard": 1.00
+    "Preferred Plus": 0.6357
+    "Preferred": 0.7425
+    "Standard": 1.0000
   stress_multiplier: 1.0
 
 lapse:
+  # Replaced (Loop 12 rigor upgrade) with the real 20-Year level term
+  # lapse-rate-by-duration curve from the SOA "2009-13 US Individual Life
+  # Persistency Update", sheet "Term -Part 1", the "20-Year level term"
+  # Policy Lapse Rate block. Durations 1-19 are the observed lapse rates
+  # for the level-premium period; duration 20 (0.31) is the well-known
+  # "shock lapse" at the end of the level-premium period, when premiums
+  # jump to attained-age rates and most surviving, non-converting
+  # policyholders let the policy lapse. See docs/DATA_SOURCES.md for the
+  # exact source cells.
   by_duration:
-    1: 0.08
-    2: 0.07
-    3: 0.06
-    4: 0.05
-    5: 0.05
-    6: 0.04
-    7: 0.04
-    8: 0.04
-    9: 0.04
-    10: 0.04
+    1: 0.06
+    2: 0.055
+    3: 0.047
+    4: 0.043
+    5: 0.04
+    6: 0.037
+    7: 0.034
+    8: 0.032
+    9: 0.031
+    10: 0.03
     11: 0.03
-    12: 0.03
-    13: 0.03
-    14: 0.03
-    15: 0.03
-    16: 0.03
-    17: 0.03
-    18: 0.03
-    19: 0.03
-    20: 0.03
+    12: 0.027
+    13: 0.027
+    14: 0.025
+    15: 0.027
+    16: 0.029
+    17: 0.029
+    18: 0.034
+    19: 0.042
+    20: 0.31
 
 interest:
   annual_effective_rate: 0.04
@@ -107,5 +117,42 @@ synthetic_data:
 # NOT a pricing assumption, and never used by the pricing engine (Loops
 # 2-7). See ACTUARIAL_ASSUMPTIONS.md for the full explanation.
 experience_simulation:
-  true_mortality_multiplier: 1.15
+  # Replaced (Loop 12 rigor upgrade): true_mortality_multiplier is now a
+  # duration-keyed curve rather than one flat scalar, derived from the SOA
+  # ILEC 2012-2019 Mortality Experience Report, Appendix H (20-year term,
+  # actual-to-2015-VBT-expected ratios by duration). Appendix H's most
+  # recent issue-year cohort (2010-2017) does not yet have observed
+  # experience past duration 10, so durations 11-20 are spliced in from the
+  # next-older issue-year cohort (2000-2009) at the same durations -- the
+  # only cohort with full 1-20 duration coverage in the report. This is a
+  # splicing simplification, documented in full (with exact appendix cells)
+  # in docs/DATA_SOURCES.md. This remains simulation-only input for the
+  # Loop 8 A/E analytics engine -- it is NEVER read by the pricing engine
+  # (Loops 2-7), per AGENTS.md's actual-vs-expected labeling rule.
+  true_mortality_multiplier_by_duration:
+    1: 0.8525
+    2: 0.8576
+    3: 0.9093
+    4: 0.8064
+    5: 0.8064
+    6: 0.7902
+    7: 0.7902
+    8: 0.7902
+    9: 0.7902
+    10: 0.7902
+    11: 0.7525
+    12: 0.7525
+    13: 0.7525
+    14: 0.7525
+    15: 0.7525
+    16: 0.7354
+    17: 0.7354
+    18: 0.7354
+    19: 0.7354
+    20: 0.7354
+  # true_lapse_multiplier remains an illustrative scalar -- no second,
+  # independent real "actual" lapse dataset was available to derive a
+  # duration-varying curve for this (the persistency report above was
+  # already used as the *expected* lapse basis itself). Left unchanged
+  # from Loop 8 pending a future data source.
   true_lapse_multiplier: 0.85
