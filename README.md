@@ -23,7 +23,7 @@ to portfolio segments and stress key pricing assumptions.
 11. **Visualization & executive outputs** — portfolio diagnostics, pricing curves, scenario charts.
 12. **Audit, refactor & GitHub release** — reproducibility, tests, documentation, model limitations.
 
-## Status: all 12 loops complete
+## Status: Completed 
 
 All twelve roadmap loops have a working implementation and test coverage under `tests/`
 (TEST_SPEC.md Gates A-E). Loop 12 itself (this section, `LICENSE`, `MODEL_LIMITATIONS.md`) is the
@@ -44,7 +44,7 @@ audit/refactor/release pass.
 | 11. Visualization & executive outputs | `src/life_pricing/visualization.py`, `scripts/generate_executive_report.py` |
 | 12. Audit, refactor & GitHub release | This README section, `LICENSE`, `MODEL_LIMITATIONS.md` |
 
-## V1.1 rigor pass (post-Loop-12)
+## V1.1 rigor pass 
 
 Three corrections/additions made after the initial 12-loop release, each documented in full in
 `ACTUARIAL_ASSUMPTIONS.md`:
