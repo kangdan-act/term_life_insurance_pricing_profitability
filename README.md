@@ -44,6 +44,27 @@ audit/refactor/release pass.
 | 11. Visualization & executive outputs | `src/life_pricing/visualization.py`, `scripts/generate_executive_report.py` |
 | 12. Audit, refactor & GitHub release | This README section, `LICENSE`, `MODEL_LIMITATIONS.md` |
 
+## V1.1 rigor pass (post-Loop-12)
+
+Three corrections/additions made after the initial 12-loop release, each documented in full in
+`ACTUARIAL_ASSUMPTIONS.md`:
+
+1. **Cash-flow timing fix.** Premiums (beginning of year) and claims (end of year) were both
+   being discounted with the same `v_t = (1+i)^-t`, silently deferring the beginning-of-year
+   premium and issue-date acquisition expense by a year. Now uses three component-specific
+   discount factors -- see "Cash-flow timing (V1.1)" in `ACTUARIAL_ASSUMPTIONS.md`.
+2. **A/E lapse denominator fix.** The expected-lapse exposure used the raw table lapse rate
+   `l_t` instead of the competing-decrement-consistent `(1 - q_t) * l_t`, understating A/E lapse
+   relative to how the simulation itself samples lapse events -- see "Experience simulation
+   basis" in `ACTUARIAL_ASSUMPTIONS.md`.
+3. **Portfolio-wide pricing** (`src/life_pricing/portfolio_pricing.py`, new). Implements
+   `PROJECT_SPEC.md` section 6, which had been specified since Loop 1 but never built: prices all
+   10,000 policies (not just the representative policy), distinguishes `indicated_premium`
+   (individually solved) from `book_premium` (rate-cell-banded, what is actually charged), and
+   reports profitability by age band, sex, smoker status, underwriting class, face amount band,
+   distribution channel, and issue cohort -- see "Portfolio pricing (V1.1)" in
+   `ACTUARIAL_ASSUMPTIONS.md` and `tests/test_portfolio_pricing.py`.
+
 ## Run (fresh environment)
 
 **Step 0 -- get the raw mortality data.** `data/raw/` is intentionally *not* committed to git
@@ -67,8 +88,12 @@ See `docs/DATA_SOURCES.md` for the full provenance note (including why this proj
 ```bash
 python -m pip install -r requirements.txt
 pytest -q                                          # full test suite (Gates A-E)
-PYTHONPATH=src python3 scripts/generate_executive_report.py  # end-to-end run + charts
+PYTHONPATH=src python3 scripts/generate_executive_report.py  # end-to-end run + charts + full-portfolio pricing
 ```
+
+The report script now also prices the full synthetic portfolio (not just the representative
+policy) and writes `data/processed/priced_portfolio.csv` and
+`data/processed/portfolio_profitability_by_segment.csv` (see "V1.1 rigor pass" above).
 
 No network access is required to run the test suite once `data/raw/` is populated and
 dependencies are installed (TEST_SPEC.md Gate E).
@@ -77,8 +102,9 @@ dependencies are installed (TEST_SPEC.md Gate E).
 
 - Product: 20-year level term life
 - Issue ages: 25–60
-- Premium mode: annual
-- Benefit timing: end of year of death
+- Premium mode: annual, beginning of policy year (V1.1: premiums now discount at
+  `(1+i)^-(t-1)`, matching this stated timing -- see "V1.1 rigor pass" above)
+- Benefit timing: end of year of death (discounted at `(1+i)^-t`, unchanged)
 - Mortality basis: SOA 2015 VBT Smoker Distinct select-and-ultimate tables, by sex and smoker
   status, with an underwriting-class multiplier layered on top (corrected from the 2017 CSO
   originally targeted in Loop 1 -- see `docs/DATA_SOURCES.md`). As of Loop 12, the

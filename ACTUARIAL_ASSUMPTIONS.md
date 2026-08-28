@@ -129,6 +129,92 @@ Additional scenario targets:
 - 10%
 - 15%
 
+## Cash-flow timing (V1.1)
+
+**Corrected in V1.1.** PROJECT_SPEC.md section 2 has always specified "Premium mode: Annual,
+beginning of policy year while in force" and "Benefit timing: End of policy year of death," but
+Loop 1 through Loop 12's code applied a single discount factor `v_t = (1+i)^-t` to every cash-flow
+component -- premiums, claims, and expenses alike. That silently treated the beginning-of-year
+premium as if it were paid one full year later than the spec says, and treated the acquisition
+expense (which is incurred at issue) the same way. This was internally consistent (every
+component used the same `v_t`, so the identities held), but it was not what the spec's own
+timing language describes, and it is exactly the kind of inconsistency a reviewing actuary would
+flag (see AGENTS.md's review checklist: "Is benefit timing consistent with discount timing?").
+
+V1.1 introduces three separate discount factors instead of one, matching each cash flow to its
+own timing convention:
+
+| Cash flow | Timing | Discount factor |
+|---|---|---|
+| Premium (`Prem_t`) | Beginning of policy year `t` | `v_b(t) = (1+i)^-(t-1)` |
+| Death claim (`Claim_t`) | End of policy year `t` | `v_e(t) = (1+i)^-t` (unchanged) |
+| Acquisition expense | At issue (year 1 only) | `v_b(1) = 1` (uses the premium factor) |
+| Maintenance expense | Mid-year (deliberate choice, not specified elsewhere) | `v_m(t) = (1+i)^-(t-0.5)` |
+
+Maintenance expense timing is not stated in PROJECT_SPEC.md, so mid-year was chosen deliberately
+as a defensible middle ground (administrative/servicing costs are incurred continuously through
+the year, not all at the start or all at the end) rather than defaulting it to match either the
+premium or the claim timing. This is a new, explicitly declared modeling choice, not a hidden
+one.
+
+The premium closed-form (`life_pricing.premium.solve_annual_premium`) was re-derived under this
+change, not just patched: the equation `P = B / (A - margin*C)` keeps the exact same shape,
+because the derivation never depended on every component sharing one discount factor -- it only
+required each `A`, `B`, `C` accumulator to use *a* consistent factor per component. `A` and `C`
+(both premium-driven) now accumulate at `v_b(t)`; `B`'s claim term still uses `v_e(t)`; `B`'s
+acquisition-expense term uses `v_b(1)` (i.e. undiscounted, matching an issue-date cash flow); and
+`B`'s maintenance-expense term uses `v_m(t)`. All 178 pre-existing tests (including every
+property-based Gate C premium test) pass unchanged under the new derivation, which is strong
+evidence the algebra is correct and not just a plausible rewrite.
+
+This produces a small but real economic difference from V1 through Loop 12: because premiums are
+now valued as arriving one period earlier (undiscounted in year 1) and acquisition expense is no
+longer artificially deferred a year, the indicated premium changes slightly relative to the old
+single-factor model, and the year-by-year `present_value_net_cash_flow` figures are no longer
+simply `discount_factor * net_cash_flow` -- they are the sum of three independently discounted
+components (`present_value_premium + present_value_claim + present_value_expense`, each using its
+own factor above).
+
+## Portfolio pricing (V1.1)
+
+PROJECT_SPEC.md section 6 ("Portfolio outputs") was declared from Loop 1 onward but never
+implemented -- every prior loop only ever priced a single `REPRESENTATIVE_POLICY`
+(`scripts/generate_executive_report.py`), not the full synthetic book. `life_pricing.portfolio_pricing`
+(new in V1.1) closes that gap by pricing every policy in the 10,000-policy portfolio and rolling
+the results up by every section-6 dimension (issue age band, sex, smoking status, underwriting
+class, face amount band, distribution channel, issue cohort).
+
+Two premiums are computed per policy, matching a distinction real pricing actuaries deal with
+constantly:
+
+- `indicated_premium`: the individually-solved actuarial premium for that exact policy's own
+  characteristics (`life_pricing.premium.solve_annual_premium` applied one policy at a time) --
+  what the assumptions say this specific risk should cost, at full granularity. By construction,
+  every policy's `indicated_pv_profit_margin` equals `assumptions.target_profit_margin` exactly
+  (currently 10%), since that is what the premium is solved to hit.
+- `book_premium`: the premium the policy is actually charged under a discretely-banded rate table
+  -- one premium per (issue_age_band, sex, smoker_status, underwriting_class, face_amount_band)
+  rating cell, computed once from that cell's realized-portfolio average issue_age/face_amount and
+  broadcast to every policy in the cell. Real filed rate manuals are coarser than a fully
+  continuous "indicated" pricing model (administrable rate tables use discrete bands, not one rate
+  per exact face amount), so `book_premium` models that same coarseness deliberately rather than
+  assuming the whole book is priced perfectly.
+
+Realized per-policy profitability (`pv_premiums`, `pv_claims`, `pv_expenses`, `pv_profit`,
+`pv_profit_margin`) is evaluated at `book_premium` -- the premium actually collected -- which is
+what reveals over- and under-priced segments: a policy whose `book_premium` sits below its own
+`indicated_premium` shows a realized `pv_profit_margin` below target, and vice versa. Against the
+full synthetic 10,000-policy book this produces a realized PV profit margin of roughly 8.3%
+against a 10% target -- the gap is rate-table granularity, not a deliberate margin difference,
+since both premiums target the same `assumptions.target_profit_margin`.
+
+This module invents no new pricing formula: every premium and cash-flow number it produces comes
+from the same `life_pricing.mortality` / `life_pricing.projection` / `life_pricing.premium` /
+`life_pricing.cashflow` functions every other loop uses, just run once per policy (or once per
+rate cell) instead of once for a single representative policy. See `tests/test_portfolio_pricing.py`
+for the regression tests covering this, including that `indicated_pv_profit_margin` hits the
+target margin exactly and that `book_premium` produces genuine realized-margin dispersion.
+
 ## Experience simulation basis (Loop 8 only -- not a pricing assumption)
 
 The pricing engine (Loops 2-7) uses only the assumptions declared above: the 2015 VBT mortality
@@ -136,6 +222,24 @@ tables, the base lapse table, 5.16% interest, and the stated expenses. Loop 8 (e
 analytics / A-E) needs something different: a stochastic *actual* outcome per synthetic policy to
 compare against those *expected* assumptions. Because this project has no real policyholder
 experience data, that actual outcome is simulated using a second, separately declared basis.
+
+**A/E lapse denominator corrected in V1.1.** The projection has always defined competing
+decrements as `D_t = I_t * q_t` (death) and `L_t = I_t * (1 - q_t) * l_t` (lapse) -- a lapse can
+only be observed among lives that did not die that year. `life_pricing.experience`'s Monte Carlo
+simulation already respected this correctly: it only samples a lapse event when the simulated
+policy did not die that year. But the *expected* side of the A/E ratio did not mirror it -- the
+exposure table aggregated expected lapses using the raw table rate `l_t` alone, as if every
+in-force life were equally exposed to lapsing regardless of that year's mortality. Because
+`l_t` is systematically larger than the correct at-risk probability `(1 - q_t) * l_t`, this
+understated the A/E lapse ratio (a smaller expected denominator makes actual-over-expected look
+larger than it should relative to the correctly conditioned basis).
+
+The exposure table now carries both probabilities explicitly: `expected_death_probability =
+expected_qx` and `expected_lapse_probability = (1 - expected_qx) * expected_lapse_rate`, and
+`life_pricing.experience.actual_to_expected_by_segment` / `overall_actual_to_expected` sum the
+latter as the A/E lapse denominator instead of the raw table rate. See
+`tests/test_experience.py::test_ae_lapse_denominator_uses_competing_decrement_not_raw_rate` for a
+regression test proving the corrected denominator is strictly smaller than the old (buggy) one.
 
 **Updated in Loop 12**: `true_mortality_multiplier` was originally one flat scalar (1.15, i.e.
 "actual mortality runs 15% worse than priced"). It is now a duration-keyed curve,

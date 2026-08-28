@@ -59,11 +59,17 @@ version of this project) knows what NOT to treat as a real pricing indication.
 
 ## Structural simplifications
 
-- **Single discrete annual cash flow per policy year.** `PROJECT_SPEC.md` section 7 discounts
-  `(Prem_t - Claim_t - Expense_t)` by one `v_t = (1+i)^-t` per policy year, even though premiums
-  are described as paid at the start of the year and claims at the end. This is the V1 contract as
-  written and is what every Gate B/C test in this repo verifies against; it is a common
-  introductory simplification, not full intra-year cash flow timing.
+- **Single discrete annual cash flow per policy year, still true within a component.** V1
+  through Loop 12 discounted `(Prem_t - Claim_t - Expense_t)` by one shared `v_t = (1+i)^-t` per
+  policy year, even though `PROJECT_SPEC.md` section 2 describes premiums as paid at the start of
+  the year and claims at the end -- a cross-component inconsistency. **Corrected in V1.1**:
+  premiums and acquisition expense now discount at `v_b(t) = (1+i)^-(t-1)` (beginning of year),
+  claims still at `v_t = (1+i)^-t` (end of year), and maintenance expense at a deliberately chosen
+  mid-year `v_m(t) = (1+i)^-(t-0.5)`. See ACTUARIAL_ASSUMPTIONS.md "Cash-flow timing (V1.1)" for
+  the full derivation. What remains a genuine simplification even after this fix: cash flow within
+  a policy year is still a single point-in-time event per component (e.g. every maintenance dollar
+  lands at exactly mid-year, not spread continuously), not full continuous-time intra-year timing
+  -- a further refinement, not something this project claims to already model.
 - **Level annual premium only**, solved in closed form under the assumption that every expense
   component is linear in the premium level. If a future loop adds a non-linear expense/commission
   structure (e.g. a first-year commission cap), `life_pricing.premium.solve_annual_premium` would
