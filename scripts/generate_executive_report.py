@@ -27,6 +27,10 @@ from life_pricing.experience import (
 )
 from life_pricing.mortality import mortality_curve_for_policy, write_processed_tables
 from life_pricing.portfolio import generate_synthetic_portfolio
+from life_pricing.portfolio_pricing import (
+    evaluate_portfolio_pricing,
+    portfolio_profitability_by_segment,
+)
 from life_pricing.premium import solve_annual_premium
 from life_pricing.projection import project_policy
 from life_pricing.scenario import run_full_sensitivity_grid
@@ -40,6 +44,7 @@ from life_pricing.visualization import (
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = ROOT / "config" / "assumptions.yaml"
+DATA_PROCESSED_DIR = ROOT / "data" / "processed"
 
 REPRESENTATIVE_POLICY = dict(
     issue_age=40, sex="male", smoker_status="nonsmoker", underwriting_class="Standard", face_amount=300_000
@@ -81,6 +86,27 @@ def main() -> None:
     overall_ae = overall_actual_to_expected(exposures)
     print(f"Overall A/E: mortality={overall_ae['ae_mortality']:.3f}, lapse={overall_ae['ae_lapse']:.3f}")
     segment_ae = actual_to_expected_by_segment(exposures, portfolio, segment_columns=["sex", "smoker_status"])
+
+    # Loop 13: portfolio-wide pricing (PROJECT_SPEC.md section 6). Prices
+    # every policy in the synthetic book -- not just REPRESENTATIVE_POLICY
+    # above -- distinguishing indicated_premium (fully individualized) from
+    # book_premium (rate-cell granularity, what is actually charged).
+    priced_portfolio = evaluate_portfolio_pricing(assumptions, portfolio)
+    priced_path = DATA_PROCESSED_DIR / "priced_portfolio.csv"
+    priced_portfolio.to_csv(priced_path, index=False)
+    print(
+        f"Priced {len(priced_portfolio)} policies -> {priced_path} "
+        f"(avg indicated premium=${priced_portfolio['indicated_premium'].mean():,.2f}, "
+        f"avg book premium=${priced_portfolio['book_premium'].mean():,.2f}, "
+        f"realized PV profit margin={priced_portfolio['pv_profit'].sum() / priced_portfolio['pv_premiums'].sum():.4f})"
+    )
+
+    portfolio_profitability = portfolio_profitability_by_segment(
+        assumptions, portfolio, priced=priced_portfolio, exposures=exposures
+    )
+    profitability_path = DATA_PROCESSED_DIR / "portfolio_profitability_by_segment.csv"
+    portfolio_profitability.to_csv(profitability_path, index=False)
+    print(f"Wrote portfolio profitability by segment -> {profitability_path}")
 
     # Loop 9: scenario grids.
     grids = run_full_sensitivity_grid(assumptions, **REPRESENTATIVE_POLICY)
