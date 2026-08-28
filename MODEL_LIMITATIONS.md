@@ -15,13 +15,13 @@ version of this project) knows what NOT to treat as a real pricing indication.
   ultimate) but are not numerically interchangeable.
 - **Underwriting class is not in the raw mortality-table data.** The raw 2015 VBT tables split
   mortality by sex and smoker status only. Preferred Plus / Preferred / Standard relativities
-  (`config/assumptions.yaml`: `mortality.underwriting_class_multiplier` = 0.6357 / 0.7425 / 1.0000)
-  were originally (Loop 3) arbitrary illustrative multipliers with no data behind them; **as of
-  Loop 12** they are derived from real, published SOA ILEC 2012-2019 Mortality Experience Report
-  A/E-by-risk-class data (see `docs/DATA_SOURCES.md`). They are still not a specific insurer's
-  filed underwriting relativities -- no company's actual pricing manual is public -- and the
-  averaging-across-face-bands methodology used to collapse the source data to three numbers is a
-  simplification, but they are no longer an unfounded guess.
+  (`config/assumptions.yaml`: `mortality.underwriting_class_multiplier_by_face_band`) were
+  originally (Loop 3) arbitrary illustrative multipliers with no data behind them; **as of Loop
+  12** they are derived from real, published SOA ILEC 2012-2019 Mortality Experience Report
+  A/E-by-risk-class data, claims-weighted and face-amount-band-specific (Loop 12b -- see
+  `docs/DATA_SOURCES.md`). They are still not a specific insurer's filed underwriting
+  relativities -- no company's actual pricing manual is public -- but they are no longer an
+  unfounded guess or a single number that discards real face-amount variation.
 - **Lapse rates were originally illustrative; as of Loop 12 they are real.**
   `config/assumptions.yaml`'s `lapse.by_duration` now comes from the SOA "2009-13 US Individual
   Life Persistency Update" report's 20-Year level term experience (see `docs/DATA_SOURCES.md`),
@@ -29,15 +29,33 @@ version of this project) knows what NOT to treat as a real pricing indication.
   experience, not a company-specific or forward-looking assumption -- persistency patterns can
   shift over time and by distribution channel, product design, and economic conditions, so this
   remains a historical benchmark rather than a guaranteed future rate.
-- **No real policyholder data for the portfolio itself, and Loop 8's mortality "actual" basis is
-  now real data but its lapse "actual" basis is still simulated.** The portfolio (Loop 4) is fully
-  synthetic. Loop 8's "actual" experience is a *simulation* against a second, separately declared
-  basis (`experience_simulation`): as of Loop 12, `true_mortality_multiplier_by_duration` is a
-  real, ILEC-derived duration curve (see `docs/DATA_SOURCES.md`), but `true_lapse_multiplier`
-  (0.85) remains an arbitrary illustrative scalar, since the real persistency data above was
-  already consumed as the *expected* lapse basis and cannot double as an independent "actual"
-  comparison. Real A/E work needs an actual experience dataset independent from whatever was used
-  to set pricing assumptions; this project approximates that only on the mortality side.
+- **No real policyholder data for the portfolio itself; Loop 8's "actual" basis is real data on a
+  different cut of the same study, not an independent experience dataset.** The portfolio (Loop 4)
+  is fully synthetic. Loop 8's "actual" experience is a *simulation* against a second, separately
+  declared basis (`experience_simulation`): both `true_mortality_multiplier_by_duration` (Loop 12,
+  from ILEC) and `true_lapse_multiplier_by_duration` (Loop 12b, from a by-risk-class cut of the
+  2009-13 Persistency Update) are now real, duration-varying, cited data rather than arbitrary
+  scalars (see `docs/DATA_SOURCES.md`). But genuine, statistically-independent A/E analysis needs
+  an actual experience dataset collected separately from whatever was used to set pricing
+  assumptions; here, both "true" curves are different segmentations of the *same* underlying
+  studies used for the *expected* basis (ILEC for mortality, the same 2009-13 persistency workbook
+  for lapse), not a second, independent experience source. The lapse curve's duration-20 figure in
+  particular rests on very thin reported exposure (~0.2% of the risk class still observed at that
+  duration) and should be read as illustrative of a real, reported pattern rather than a precise
+  estimate.
+
+- **Interest rate is a real risk-free rate, not a company's actual net investment income
+  assumption.** `config/assumptions.yaml`'s `interest.annual_effective_rate` was originally
+  (Loop 1) an arbitrary illustrative 4.0%; **as of Loop 12** it is the real 20-Year Treasury
+  Constant Maturity yield (FRED series DGS20, 5.16% as of 2026-08-25 -- see
+  `docs/DATA_SOURCES.md`). This is a genuine, citable public rate, but it is a risk-free proxy: a
+  real insurer prices using its expected portfolio yield, which typically earns a spread over
+  Treasuries from investment-grade corporate bonds and other assets backing reserves, and this
+  project does not model that spread, the underlying asset portfolio, or interest-rate risk (a
+  full stochastic interest-rate model is explicitly out of scope per `PROJECT_SPEC.md` section 9).
+  It is also a point-in-time snapshot of a daily-updated series -- unlike the mortality/lapse
+  studies above, which describe a fixed historical experience period, this rate can and will drift
+  from the market by the time anyone reads this.
 
 ## Structural simplifications
 

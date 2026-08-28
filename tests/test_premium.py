@@ -26,7 +26,8 @@ def assumptions():
 
 def _projection_for(assumptions, issue_age=ISSUE_AGE, sex=SEX, smoker_status=SMOKER_STATUS, uw_class=UW_CLASS, face_amount=FACE_AMOUNT):
     qx = mortality_curve_for_policy(
-        assumptions, issue_age=issue_age, sex=sex, smoker_status=smoker_status, underwriting_class=uw_class
+        assumptions, issue_age=issue_age, sex=sex, smoker_status=smoker_status,
+        underwriting_class=uw_class, face_amount=face_amount,
     )
     return project_policy(assumptions, issue_age=issue_age, mortality_rates_qx=qx, face_amount=face_amount)
 
@@ -126,7 +127,7 @@ def test_indicated_premium_decreases_as_discount_rate_increases(assumptions):
 def test_no_negative_premiums_across_edge_grid(assumptions):
     for issue_age in (25, 60):
         for sex, smoker_status in (("male", "nonsmoker"), ("female", "smoker")):
-            for uw_class in assumptions.underwriting_class_multipliers:
+            for uw_class in assumptions.underwriting_classes:
                 for face_amount in (assumptions.face_amount_min, assumptions.face_amount_max):
                     projection = _projection_for(
                         assumptions,

@@ -55,8 +55,9 @@ def main() -> None:
     print(f"Wrote {len(processed_paths)} processed mortality files.")
 
     # Loops 2 + 5-7: price the representative policy.
-    mortality_kwargs = {k: v for k, v in REPRESENTATIVE_POLICY.items() if k != "face_amount"}
-    qx = mortality_curve_for_policy(assumptions, **mortality_kwargs)
+    # (mortality_curve_for_policy now accepts face_amount directly -- Loop
+    # 12b's underwriting-class relativity varies by face-amount band.)
+    qx = mortality_curve_for_policy(assumptions, **REPRESENTATIVE_POLICY)
     projection = project_policy(
         assumptions,
         issue_age=REPRESENTATIVE_POLICY["issue_age"],

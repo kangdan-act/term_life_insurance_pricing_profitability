@@ -33,7 +33,7 @@ def assumptions():
 
 @pytest.fixture(scope="module")
 def projection_df(assumptions):
-    qx = mortality_curve_for_policy(assumptions, issue_age=40, sex="male", smoker_status="nonsmoker", underwriting_class="Standard")
+    qx = mortality_curve_for_policy(assumptions, issue_age=40, sex="male", smoker_status="nonsmoker", underwriting_class="Standard", face_amount=300_000)
     records = project_policy(assumptions, issue_age=40, mortality_rates_qx=qx, face_amount=300_000)
     return pd.DataFrame([r.__dict__ for r in records])
 

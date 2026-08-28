@@ -17,15 +17,31 @@ Reference basis (corrected in Loop 3 to match the actual source data -- see belo
 - Underwriting class (Preferred Plus / Preferred / Standard) is required by PROJECT_SPEC.md as a
   policy dimension, but the raw tables split by sex and smoker status only -- they do not encode
   underwriting class. A multiplicative underwriting-class relativity is applied on top of the base
-  table (config/assumptions.yaml: mortality.underwriting_class_multiplier = Preferred Plus 0.6357,
-  Preferred 0.7425, Standard 1.0000). **Updated in Loop 12** from V1 illustrative guesses to values
-  derived from real published data: the SOA "Individual Life Experience Committee (ILEC) 2012-2019
-  Mortality Experience Report" appendices, Appendix K1 (nonsmoker actual-to-2015-VBT-expected
-  ratios by underwriting-class rank and face-amount band), averaged across the 100k-249k /
-  250k-499k / 500k-999k face bands and normalized so the worst (Standard) class = 1.0. These are
-  still not filed company-specific rates -- they are relativities implied by aggregate industry
-  experience data -- but they replace arbitrary guesses with a cited, reproducible source. See
-  `docs/DATA_SOURCES.md` for the exact source cells and averaging methodology.
+  table (config/assumptions.yaml:
+  `mortality.underwriting_class_multiplier_by_face_band`). **Updated in Loop 12** from V1
+  illustrative guesses (flat 0.60/0.80/1.00) to values derived from real published data: the SOA
+  "Individual Life Experience Committee (ILEC) 2012-2019 Mortality Experience Report" appendices,
+  Appendix K1 (nonsmoker actual-to-2015-VBT-expected ratios by underwriting-class rank and
+  face-amount band).
+
+  **Loop 12b refinement**: rather than collapsing Appendix K1's face-amount detail into one flat
+  multiplier per class, the relativity is now face-amount-band specific, since the raw data shows
+  it genuinely varies by face amount (better classes separate further from Standard at lower face
+  amounts):
+
+  | Face amount band | Preferred Plus | Preferred | Standard |
+  |---|---:|---:|---:|
+  | $100,000-$249,999 | 0.6541 | 0.7588 | 1.0000 |
+  | $250,000-$499,999 | 0.6433 | 0.7602 | 1.0000 |
+  | $500,000-$1,000,000 | 0.6146 | 0.7182 | 1.0000 |
+
+  Each band's figure is also claims-count-weighted across Appendix K1's duration-group columns
+  (using the sheet's own "Number of Policy Claims" block as weights, a limited-fluctuation-style
+  credibility weighting) rather than a simple average, so duration cells with more claims
+  experience influence the relativity more than sparse ones. These are still not filed
+  company-specific rates -- they are relativities implied by aggregate industry experience data --
+  but they replace arbitrary guesses with a cited, reproducible, and now face-amount-aware source.
+  See `docs/DATA_SOURCES.md` for the exact source cells and methodology.
 - A mortality stress multiplier (config: mortality.stress_multiplier) is applied multiplicatively
   to q_x on top of the underwriting-class relativity, for sensitivity/scenario testing (Loop 9).
 
@@ -78,9 +94,16 @@ L_t = I_t * (1-q_t) * lapse_t
 
 ## Interest
 
-Base annual effective discount rate: **4.0%**
+Base annual effective discount rate: **5.16%**. **Updated in Loop 12** from an arbitrary
+illustrative 4.0% to a real, publicly cited rate: the 20-Year Treasury Constant Maturity yield
+(FRED series DGS20), 5.16% as of 2026-08-25 -- chosen for its ~20-year duration match to this
+product's term, giving a defensible, citable anchor instead of a round-number guess. This is a
+risk-free proxy, not a company's actual net investment income assumption; see
+`MODEL_LIMITATIONS.md` for why that distinction matters, and `docs/DATA_SOURCES.md` for the
+citation.
 
-Sensitivity range planned:
+Sensitivity range planned (unchanged; `life_pricing.scenario`'s grid still spans a realistic band
+around the base rate rather than being re-centered on 5.16% -- see `MODEL_LIMITATIONS.md`):
 - 2%
 - 3%
 - 4%
@@ -109,7 +132,7 @@ Additional scenario targets:
 ## Experience simulation basis (Loop 8 only -- not a pricing assumption)
 
 The pricing engine (Loops 2-7) uses only the assumptions declared above: the 2015 VBT mortality
-tables, the base lapse table, 4.0% interest, and the stated expenses. Loop 8 (experience
+tables, the base lapse table, 5.16% interest, and the stated expenses. Loop 8 (experience
 analytics / A-E) needs something different: a stochastic *actual* outcome per synthetic policy to
 compare against those *expected* assumptions. Because this project has no real policyholder
 experience data, that actual outcome is simulated using a second, separately declared basis.
@@ -145,15 +168,48 @@ duration 10 (recent business hasn't aged that far), so durations 11-20 above are
 the next-older issue-year cohort (2000-2009) at the same durations -- the only cohort in the
 report with full duration 1-20 coverage. See `docs/DATA_SOURCES.md` for the exact source cells.
 
-`true_lapse_multiplier` remains an unchanged, illustrative flat scalar (0.85): no second,
-independent real "actual" lapse dataset was available (the SOA persistency report above was
-already consumed as the *expected* lapse basis itself, so it cannot also serve as an independent
-"actual" comparison).
+**Loop 12b update**: `true_lapse_multiplier` was originally an unchanged, illustrative flat
+scalar (0.85), because the SOA persistency report used for the *expected* lapse basis was thought
+to have no independent "actual" counterpart. On closer inspection, the same 2009-13 persistency
+workbook reports a genuinely different real cut of the same underlying study: sheet
+"Term - Part 3" ("By Risk Classification"), which breaks the 20-Year level term lapse curve out by
+risk class (Preferred / Standard / Substandard) rather than blending them, as sheet "Term -Part 1"
+(the pricing/expected source) does. The **Standard** risk class was used -- the only one of the
+three with reported experience at every duration 1-20 (Preferred and Substandard have no reported
+figures for durations 18-20, presumably too little exposure to report reliably). Dividing this
+Standard-class curve by the pricing (expected, blended) curve gives a real, duration-varying
+`true_lapse_multiplier_by_duration`:
+
+| Duration | Multiplier | Duration | Multiplier |
+|---|---:|---|---:|
+| 1 | 1.4667 | 11 | 1.0667 |
+| 2 | 1.2909 | 12 | 1.0741 |
+| 3 | 1.2553 | 13 | 1.0370 |
+| 4 | 1.2326 | 14 | 1.0400 |
+| 5 | 1.2250 | 15 | 1.0000 |
+| 6 | 1.1081 | 16 | 1.0345 |
+| 7 | 1.0294 | 17 | 1.2069 |
+| 8 | 1.0000 | 18 | 1.2353 |
+| 9 | 1.0000 | 19 | 1.1667 |
+| 10 | 1.0667 | 20 | 0.5484 |
+
+Two things are worth flagging honestly. First, this is not a fully *independent* dataset in the
+statistical sense -- both curves come from the same 2009-13 experience period, just sliced
+differently (blended-across-risk-class vs. Standard-only) -- so it demonstrates real, reported
+variation rather than a truly separate "actual" study. Second, duration 20's multiplier (0.5484)
+is a genuine reported figure but rests on very thin exposure for the Standard-only cut at that
+duration (the sheet's own exposure-distribution column shows only ~0.2% of the risk class's
+policies are still being observed at duration 20), so it carries much less credibility than the
+early-duration figures; it was still used as-is (not smoothed or discarded) per AGENTS.md's rule
+against silently altering reported data, but a future loop could apply an explicit credibility
+blend toward 1.0 at low-exposure durations. Both caveats are why this remains flagged as a "true"
+*simulation* basis for Loop 8 rather than promoted into the pricing (expected) assumptions
+themselves.
 
 | Parameter | Value | Meaning |
 |---|---:|---|
 | `experience_simulation.true_mortality_multiplier_by_duration` | see table above | Real, SOA-ILEC-derived, duration-varying. |
-| `experience_simulation.true_lapse_multiplier` | 0.85 | Still illustrative: simulated "true" lapse runs 15% lower than the pricing (expected) lapse basis. |
+| `experience_simulation.true_lapse_multiplier_by_duration` | see table above | Real, SOA-persistency-by-risk-class-derived, duration-varying (Loop 12b). |
 
 These values exist so Loop 8's actual-to-expected (A/E) ratios are not trivially 1.0 -- they let
 the experience analytics engine demonstrate a realistic, data-grounded divergence between actual

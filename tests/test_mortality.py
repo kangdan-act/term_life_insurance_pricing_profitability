@@ -101,6 +101,7 @@ def test_mortality_curve_for_policy_edge_ages_and_classes(assumptions, issue_age
         sex="male",
         smoker_status="nonsmoker",
         underwriting_class=underwriting_class,
+        face_amount=300_000,
     )
     assert len(qx) == assumptions.term_years
     assert all(0.0 <= q <= 1.0 for q in qx)
@@ -109,11 +110,11 @@ def test_mortality_curve_for_policy_edge_ages_and_classes(assumptions, issue_age
 def test_preferred_plus_is_strictly_lighter_than_standard(assumptions):
     pp = mortality_curve_for_policy(
         assumptions, issue_age=40, sex="male", smoker_status="nonsmoker",
-        underwriting_class="Preferred Plus",
+        underwriting_class="Preferred Plus", face_amount=300_000,
     )
     std = mortality_curve_for_policy(
         assumptions, issue_age=40, sex="male", smoker_status="nonsmoker",
-        underwriting_class="Standard",
+        underwriting_class="Standard", face_amount=300_000,
     )
     assert all(p <= s for p, s in zip(pp, std))
     assert any(p < s for p, s in zip(pp, std))
@@ -123,5 +124,28 @@ def test_unknown_underwriting_class_raises(assumptions):
     with pytest.raises(Exception):
         mortality_curve_for_policy(
             assumptions, issue_age=40, sex="male", smoker_status="nonsmoker",
-            underwriting_class="Super Preferred",
+            underwriting_class="Super Preferred", face_amount=300_000,
+        )
+
+
+def test_underwriting_class_multiplier_varies_by_face_amount_band(assumptions):
+    # Loop 12b: the underwriting-class relativity is now face-amount-band
+    # specific (derived from ILEC Appendix K1), so the same class at two
+    # different face amounts should generally not produce identical curves.
+    low_band = mortality_curve_for_policy(
+        assumptions, issue_age=40, sex="male", smoker_status="nonsmoker",
+        underwriting_class="Preferred Plus", face_amount=150_000,
+    )
+    high_band = mortality_curve_for_policy(
+        assumptions, issue_age=40, sex="male", smoker_status="nonsmoker",
+        underwriting_class="Preferred Plus", face_amount=750_000,
+    )
+    assert low_band != high_band
+
+
+def test_face_amount_outside_every_band_raises(assumptions):
+    with pytest.raises(Exception):
+        mortality_curve_for_policy(
+            assumptions, issue_age=40, sex="male", smoker_status="nonsmoker",
+            underwriting_class="Standard", face_amount=-1,
         )

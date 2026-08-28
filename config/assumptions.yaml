@@ -20,17 +20,44 @@ mortality:
   # source data rather than silently keeping an inaccurate label -- see
   # docs/DATA_SOURCES.md for the full explanation.
   reference_basis: "2015 VBT Smoker Distinct tables (SOA mort.soa.org), select & ultimate, by sex and smoker status"
-  # Underwriting-class relativities derived (Loop 12 rigor upgrade) from the
-  # SOA "Individual Life Experience Committee (ILEC) 2012-2019 Mortality
-  # Experience Report" appendices, Appendix K1 (nonsmoker A/E-to-2015-VBT by
-  # underwriting-class rank), averaged across the 100k-249k / 250k-499k /
-  # 500k-999k face-amount bands and normalized so Standard = 1.0. These
-  # replace the earlier illustrative guesses -- see docs/DATA_SOURCES.md
-  # for the exact source cells and averaging methodology.
-  underwriting_class_multiplier:
-    "Preferred Plus": 0.6357
-    "Preferred": 0.7425
-    "Standard": 1.0000
+  # Underwriting-class relativities derived from the SOA "Individual Life
+  # Experience Committee (ILEC) 2012-2019 Mortality Experience Report"
+  # appendices, Appendix K1 (nonsmoker A/E-to-2015-VBT by underwriting-class
+  # rank and face-amount band). These replace the original Loop 3
+  # illustrative guesses (flat 0.60/0.80/1.00) -- see docs/DATA_SOURCES.md
+  # for the exact source cells and methodology.
+  #
+  # Loop 12b refinement: split from one flat multiplier per class into
+  # face-amount-band-specific multipliers, since Appendix K1's raw data
+  # shows the relativity is NOT constant across face amount (better classes
+  # separate more from Standard at lower face amounts than at higher ones).
+  # Each band's A/E ratio was also claims-count-weighted across Appendix
+  # K1's duration-group columns (using the "Number of Policy Claims" block
+  # on the same sheet as weights) rather than a simple average, applying
+  # limited-fluctuation-credibility logic so heavily-populated duration
+  # cells influence the relativity more than sparse ones. Every policy's
+  # face_amount (a required PROJECT_SPEC.md dimension, in
+  # [product.face_amount_min, product.face_amount_max]) must fall in
+  # exactly one band; validated in life_pricing.config.validate_assumptions.
+  underwriting_class_multiplier_by_face_band:
+    - face_amount_min: 100000
+      face_amount_max: 249999
+      multipliers:
+        "Preferred Plus": 0.6541
+        "Preferred": 0.7588
+        "Standard": 1.0000
+    - face_amount_min: 250000
+      face_amount_max: 499999
+      multipliers:
+        "Preferred Plus": 0.6433
+        "Preferred": 0.7602
+        "Standard": 1.0000
+    - face_amount_min: 500000
+      face_amount_max: 1000000
+      multipliers:
+        "Preferred Plus": 0.6146
+        "Preferred": 0.7182
+        "Standard": 1.0000
   stress_multiplier: 1.0
 
 lapse:
@@ -66,7 +93,16 @@ lapse:
     20: 0.31
 
 interest:
-  annual_effective_rate: 0.04
+  # Loop 12 rigor upgrade: replaced the original arbitrary 4.0% illustrative
+  # rate with a real, publicly cited risk-free rate anchor -- the 20-Year
+  # Treasury Constant Maturity yield (FRED series DGS20), 5.16% as of
+  # 2026-08-25, chosen for its ~20-year duration match to this product's
+  # term. This is a risk-free proxy, not a company's actual net investment
+  # income assumption (a real insurer would typically earn a spread over
+  # Treasuries from an investment-grade corporate bond portfolio backing
+  # reserves) -- see docs/DATA_SOURCES.md for the citation and rationale,
+  # and MODEL_LIMITATIONS.md for why this remains a simplification.
+  annual_effective_rate: 0.0516
 
 expenses:
   acquisition_fixed: 150.0
@@ -90,8 +126,9 @@ synthetic_data:
   smoker_distribution:
     nonsmoker: 0.85
     smoker: 0.15
-  # Must match mortality.underwriting_class_multiplier's categories exactly
-  # (validated in life_pricing.config.validate_assumptions).
+  # Must match the underwriting-class categories declared in every band of
+  # mortality.underwriting_class_multiplier_by_face_band exactly (validated
+  # in life_pricing.config.validate_assumptions).
   underwriting_class_distribution:
     "Preferred Plus": 0.20
     "Preferred": 0.40
@@ -150,9 +187,38 @@ experience_simulation:
     18: 0.7354
     19: 0.7354
     20: 0.7354
-  # true_lapse_multiplier remains an illustrative scalar -- no second,
-  # independent real "actual" lapse dataset was available to derive a
-  # duration-varying curve for this (the persistency report above was
-  # already used as the *expected* lapse basis itself). Left unchanged
-  # from Loop 8 pending a future data source.
-  true_lapse_multiplier: 0.85
+  # true_lapse_multiplier_by_duration (Loop 12b): replaced the flat,
+  # illustrative 0.85 scalar with a real, duration-varying curve. The
+  # pricing (expected) lapse basis above already consumes the SOA 2009-13
+  # Persistency Update's combined-risk-class "20-Year level term" figures,
+  # so it cannot also serve as an independent "actual" comparison. Instead,
+  # this uses a genuinely different real cut of the SAME underlying 2009-13
+  # study: sheet "Term - Part 3" ("By Risk Classification"), the "20-year
+  # Level Term, Standard" column, which is reported separately from the
+  # blended figure used as the pricing basis. Standard was chosen because
+  # it is the only one of the three reported risk classes (Preferred /
+  # Standard / Substandard) with data at every duration 1-20; Preferred and
+  # Substandard have no reported experience for durations 18-20 (too little
+  # exposure to report). See docs/DATA_SOURCES.md for the exact source
+  # cells and the resulting ratio-to-expected-lapse derivation.
+  true_lapse_multiplier_by_duration:
+    1: 1.4667
+    2: 1.2909
+    3: 1.2553
+    4: 1.2326
+    5: 1.225
+    6: 1.1081
+    7: 1.0294
+    8: 1.0
+    9: 1.0
+    10: 1.0667
+    11: 1.0667
+    12: 1.0741
+    13: 1.037
+    14: 1.04
+    15: 1.0
+    16: 1.0345
+    17: 1.2069
+    18: 1.2353
+    19: 1.1667
+    20: 0.5484

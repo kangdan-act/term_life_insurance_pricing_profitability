@@ -58,7 +58,7 @@ worth flagging if issue_age_max is ever raised in a future loop.
 PROJECT_SPEC.md requires `underwriting_class` (Preferred Plus / Preferred / Standard) as a
 policy-level input, but the 2015 VBT select/ultimate table files split only by sex and smoker
 status -- they do not encode underwriting class. Loop 3 layered a configured multiplicative
-relativity (`config/assumptions.yaml`: `mortality.underwriting_class_multiplier`) on top of the
+relativity (`config/assumptions.yaml`: `mortality.underwriting_class_multiplier_by_face_band`) on top of the
 base sex/smoker table to produce a class-adjusted q_x curve; those Loop 3 values were arbitrary
 illustrative guesses (0.60 / 0.80 / 1.00), not derived from any data.
 
@@ -73,31 +73,50 @@ consistent with this project's mortality basis).
 Sheet `K1` reports actual-to-expected (A/E) mortality ratios by risk-class rank (1 = best/lowest
 mortality ... N = worst/highest mortality), separately for each declared risk-class structure
 (2-class, 3-class, 4-class) and face-amount band, across duration groups (1, 2, 3, 4-5, 6-10,
-11-15, 16-20, 21-25). This project uses a 3-class structure (Preferred Plus / Preferred /
-Standard), so only the **3-class rows** were used, for the three face-amount bands nearest this
-project's `face_amount_min`/`face_amount_max` range ($100K-$1M):
+11-15, 16-20, 21-25) and, in a block further down the same sheet ("Number of Policy Claims",
+starting row 58), the claim counts underlying each ratio. This project uses a 3-class structure
+(Preferred Plus / Preferred / Standard), so only the **3-class rows** were used, for the three
+face-amount bands nearest this project's `face_amount_min`/`face_amount_max` range ($100K-$1M):
 
-| Face amount band | Class rank 1 (best) row | Class rank 2 row | Class rank 3 (worst) row |
+| Face amount band | A/E rows (rank 1 / 2 / 3) | Claim-count rows (rank 1 / 2 / 3) |
+|---|---|---|
+| 100,000-249,999 | K1!12 / K1!13 / K1!14 | K1!63 / K1!64 / K1!65 |
+| 250,000-499,999 | K1!21 / K1!22 / K1!23 | K1!72 / K1!73 / K1!74 |
+| 500,000-999,999 | K1!30 / K1!31 / K1!32 | K1!81 / K1!82 / K1!83 |
+
+**Loop 12b refinement**: two changes from the original Loop 12 methodology.
+
+1. **Claims-weighted instead of simple average.** For each (band, rank), the eight duration-group
+   A/E ratios (columns E:L) are now averaged weighted by that duration group's reported claim
+   count (columns E:L of the matching claim-count row), instead of an unweighted mean. This is a
+   limited-fluctuation-credibility-style refinement: duration groups with more claims (more
+   statistical volume) pull the relativity more than sparse ones -- e.g. the 21-25 duration group
+   often has very few claims and an erratic ratio, so it should not count as much as the
+   well-populated 6-10 group.
+2. **Face-band-specific output instead of one number per class.** The claims-weighted A/E for
+   each rank is normalized within its own band (divide by that band's rank-3/Standard figure, so
+   Standard = 1.0), rather than normalizing then averaging across bands into one flat number. This
+   preserves the real face-amount variation Appendix K1 shows instead of discarding it.
+
+Resulting values in `config/assumptions.yaml`
+(`mortality.underwriting_class_multiplier_by_face_band`):
+
+| Face amount band | Preferred Plus | Preferred | Standard |
 |---|---:|---:|---:|
-| 100,000-249,999 | K1!12 | K1!13 | K1!14 |
-| 250,000-499,999 | K1!21 | K1!22 | K1!23 |
-| 500,000-999,999 | K1!30 | K1!31 | K1!32 |
+| 100,000-249,999 | 0.6541 | 0.7588 | 1.0000 |
+| 250,000-499,999 | 0.6433 | 0.7602 | 1.0000 |
+| 500,000-1,000,000 | 0.6146 | 0.7182 | 1.0000 |
 
-Methodology: for each face-amount band, the reported A/E ratios across all eight duration groups
-(columns E:L on sheet `K1`) were averaged within each class rank to get one A/E figure per
-(band, rank); that figure was then normalized within the band by dividing by the rank-3
-(Standard/worst) figure, so Standard = 1.0 and better classes get multipliers < 1.0. The
-normalized ratios were then averaged across the three face-amount bands to get one relativity per
-class, giving the values now in `config/assumptions.yaml`
-(`mortality.underwriting_class_multiplier`): Preferred Plus 0.6357, Preferred 0.7425,
-Standard 1.0000.
+(The third band's upper bound is set to this project's `product.face_amount_max` of $1,000,000,
+one dollar above Appendix K1's own "500,000-999,999" label, so every face amount in the product's
+configured range `[100000, 1000000]` falls in exactly one band -- validated in
+`life_pricing.config.validate_assumptions`.)
 
 These are still not filed, company-specific underwriting relativities -- no single insurer's
-actual pricing manual is public -- but they are now grounded in real, published aggregate
-industry A/E experience by risk class, rather than an arbitrary guess. A reader can reproduce or
-refine this calculation directly from the cited `K1` sheet rows (e.g. weighting by the "Number of
-Policy Claims" block reported later on the same sheet, rows 63-65 / 72-74 / 81-83, instead of a
-simple average, would be a reasonable refinement for a future loop).
+actual pricing manual is public -- but they are now grounded in real, published, claims-weighted,
+face-amount-aware industry A/E experience by risk class, rather than an arbitrary guess or a
+single flattened average. A reader can reproduce this calculation directly from the cited `K1`
+sheet rows and their matching claim-count rows.
 
 ## Experience-study benchmark (Loop 8's "true" mortality basis)
 
@@ -131,9 +150,8 @@ then row 15's values for durations 11-20 (0.7525 x5 for 11-15, 0.7354 x5 for 16-
 `ACTUARIAL_ASSUMPTIONS.md` for the full table and the interpretation (real experience for this
 product runs better than the 2015 VBT expected basis at every duration).
 
-`experience_simulation.true_lapse_multiplier` (0.85) was left unchanged and remains illustrative
--- the persistency report used as the *expected* lapse basis (see "Lapse experience" section
-below) cannot also serve as an independent "actual" comparison for the same product.
+`experience_simulation.true_lapse_multiplier_by_duration` (Loop 12b) is likewise now real data --
+see "Lapse experience" below for its source and derivation.
 
 ## Lapse experience (real 20-Year level term persistency data)
 
@@ -154,6 +172,66 @@ Duration 20's reported lapse rate is 31.0% -- far above the level-period rates (
 the real, well-documented "shock lapse" that occurs when a level-term policy's premium jumps to
 attained-age rates at the end of the level-premium period. See `ACTUARIAL_ASSUMPTIONS.md` for the
 full duration table and interpretation.
+
+### True lapse basis for Loop 8's experience simulation (Loop 12b)
+
+`experience_simulation.true_lapse_multiplier_by_duration` was derived from a different cut of the
+same persistency workbook: sheet **`Term - Part 3`** ("Part 3 of 3 -- By Risk Classification"),
+which reports the same "20-year Level Term" lapse rates broken out by risk classification
+(Preferred / Standard / Substandard) rather than blended, unlike `Term -Part 1`'s combined figure
+used as the pricing/expected basis above. The relevant columns for "20-year Level Term":
+Preferred = columns AL:AN (38:40), Standard = columns AP:AR (42:44), Substandard = columns AT:AV
+(46:48); rows 10-29 for policy years 1-20.
+
+The **Standard** column was used, because it is the only one of the three with a reported lapse
+rate at every duration 1-20 -- Preferred and Substandard both have blank cells for durations
+18-20 (the sheet's Exposure Distribution column shows exposure had shrunk too far by then for a
+reliable figure to be reported for those classes). `true_lapse_multiplier_by_duration[t]` is
+computed as `Standard_lapse_rate[t] / expected_lapse_rate[t]` (the `lapse.by_duration` figure for
+the same duration, from the "Lapse experience" section above):
+
+| Duration | Standard (Part 3) | Expected (Part 1) | Multiplier | Duration | Standard (Part 3) | Expected (Part 1) | Multiplier |
+|---|---:|---:|---:|---|---:|---:|---:|
+| 1 | 8.8% | 6.0% | 1.4667 | 11 | 3.2% | 3.0% | 1.0667 |
+| 2 | 7.1% | 5.5% | 1.2909 | 12 | 2.9% | 2.7% | 1.0741 |
+| 3 | 5.9% | 4.7% | 1.2553 | 13 | 2.8% | 2.7% | 1.0370 |
+| 4 | 5.3% | 4.3% | 1.2326 | 14 | 2.6% | 2.5% | 1.0400 |
+| 5 | 4.9% | 4.0% | 1.2250 | 15 | 2.7% | 2.7% | 1.0000 |
+| 6 | 4.1% | 3.7% | 1.1081 | 16 | 3.0% | 2.9% | 1.0345 |
+| 7 | 3.5% | 3.4% | 1.0294 | 17 | 3.5% | 2.9% | 1.2069 |
+| 8 | 3.2% | 3.2% | 1.0000 | 18 | 4.2% | 3.4% | 1.2353 |
+| 9 | 3.1% | 3.1% | 1.0000 | 19 | 4.9% | 4.2% | 1.1667 |
+| 10 | 3.2% | 3.0% | 1.0667 | 20 | 17.0% | 31.0% | 0.5484 |
+
+Two caveats, stated plainly per AGENTS.md's transparency requirement:
+
+1. This is **not a fully independent dataset** -- both the "expected" and "true" lapse curves come
+   from the same 2009-13 experience period and the same underlying policies, just sliced
+   differently (blended-across-risk-class vs. Standard-only). It demonstrates real, reported
+   variation within the study rather than a genuinely separate "actual" experience study.
+2. Duration 20's multiplier (0.5484) rests on very thin exposure -- `Term - Part 3`'s Standard-only
+   Exposure Distribution column shows only ~0.2% of that risk class's policies are still being
+   observed at duration 20 (vs. ~7-9% at early durations). It is used as reported, unsmoothed, but
+   carries materially less credibility than the early-duration figures.
+
+## Interest rate reference (Loop 12)
+
+`interest.annual_effective_rate` in `config/assumptions.yaml` was originally an arbitrary,
+illustrative 4.0%, chosen as a round number with no citation. It was replaced with a real,
+publicly published rate: the **20-Year Treasury Constant Maturity yield**, FRED series
+[`DGS20`](https://fred.stlouisfed.org/series/DGS20) (Federal Reserve Bank of St. Louis, sourced
+from the U.S. Treasury), which read **5.16%** as of **2026-08-25** at the time this was checked.
+
+Rationale for this specific series: it is a risk-free rate with roughly the same ~20-year duration
+as this product's term, giving a defensible, citable anchor without introducing a full stochastic
+interest-rate model (explicitly out of scope per `PROJECT_SPEC.md` section 9 -- see
+`MODEL_LIMITATIONS.md`). It is a proxy, not a company's actual net investment income assumption:
+a real insurer prices using its expected portfolio yield, typically a spread over Treasuries from
+investment-grade corporate bonds and other assets backing reserves, which this project does not
+model. Unlike the mortality/lapse sources above, this is a live daily-updated series rather than a
+static historical study, so the cited value is a point-in-time snapshot -- re-checking FRED DGS20
+and updating this figure (with a new date noted) would be a reasonable periodic refresh for a
+project intended to stay current, rather than a one-time correction.
 
 ## Data provenance rule
 

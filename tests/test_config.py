@@ -25,7 +25,7 @@ def test_base_assumptions_load():
     assert assumptions.issue_age_min == 25
     assert assumptions.issue_age_max == 60
     assert assumptions.term_years == 20
-    assert assumptions.discount_rate == pytest.approx(0.04)
+    assert assumptions.discount_rate == pytest.approx(0.0516)
     assert assumptions.target_profit_margin == pytest.approx(0.10)
     assert len(assumptions.lapse_rates) == 20
 

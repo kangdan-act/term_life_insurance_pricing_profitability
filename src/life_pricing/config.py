@@ -68,20 +68,51 @@ class ProjectAssumptions:
         return float(self.raw["mortality"]["stress_multiplier"])
 
     @property
-    def underwriting_class_multipliers(self) -> dict[str, float]:
-        return {
-            str(k): float(v)
-            for k, v in self.raw["mortality"]["underwriting_class_multiplier"].items()
-        }
+    def underwriting_class_multiplier_bands(self) -> list[dict[str, Any]]:
+        """Each band: {"face_amount_min": float, "face_amount_max": float,
+        "multipliers": {underwriting_class: float}}. See
+        config/assumptions.yaml: mortality.underwriting_class_multiplier_by_face_band."""
 
-    def underwriting_class_multiplier(self, underwriting_class: str) -> float:
-        multipliers = self.underwriting_class_multipliers
-        if underwriting_class not in multipliers:
-            raise AssumptionValidationError(
-                f"Unknown underwriting_class {underwriting_class!r}; "
-                f"expected one of {sorted(multipliers)}."
+        bands = []
+        for band in self.raw["mortality"]["underwriting_class_multiplier_by_face_band"]:
+            bands.append(
+                {
+                    "face_amount_min": float(band["face_amount_min"]),
+                    "face_amount_max": float(band["face_amount_max"]),
+                    "multipliers": {
+                        str(k): float(v) for k, v in band["multipliers"].items()
+                    },
+                }
             )
-        return multipliers[underwriting_class]
+        return bands
+
+    @property
+    def underwriting_classes(self) -> set[str]:
+        """The set of underwriting-class category names (identical across
+        every face-amount band; enforced by validate_assumptions)."""
+
+        bands = self.underwriting_class_multiplier_bands
+        return set(bands[0]["multipliers"]) if bands else set()
+
+    def underwriting_class_multiplier(self, underwriting_class: str, face_amount: float) -> float:
+        """Look up the underwriting-class relativity for the face-amount
+        band `face_amount` falls in (bands are inclusive on both ends and
+        collectively cover [product.face_amount_min, product.face_amount_max];
+        see validate_assumptions)."""
+
+        for band in self.underwriting_class_multiplier_bands:
+            if band["face_amount_min"] <= face_amount <= band["face_amount_max"]:
+                multipliers = band["multipliers"]
+                if underwriting_class not in multipliers:
+                    raise AssumptionValidationError(
+                        f"Unknown underwriting_class {underwriting_class!r}; "
+                        f"expected one of {sorted(multipliers)}."
+                    )
+                return multipliers[underwriting_class]
+        raise AssumptionValidationError(
+            f"face_amount {face_amount} is not covered by any "
+            "mortality.underwriting_class_multiplier_by_face_band entry."
+        )
 
     # -- expenses -----------------------------------------------------
 
@@ -163,8 +194,11 @@ class ProjectAssumptions:
         }
 
     @property
-    def true_lapse_multiplier(self) -> float:
-        return float(self.raw["experience_simulation"]["true_lapse_multiplier"])
+    def true_lapse_multiplier_by_duration(self) -> dict[int, float]:
+        return {
+            int(k): float(v)
+            for k, v in self.raw["experience_simulation"]["true_lapse_multiplier_by_duration"].items()
+        }
 
 
 def _require_nonnegative(value: float, field_name: str) -> None:
@@ -239,13 +273,64 @@ def validate_assumptions(raw: dict[str, Any]) -> None:
 
     _require_positive(float(mortality["stress_multiplier"]), "mortality.stress_multiplier")
 
-    underwriting_multipliers = mortality.get("underwriting_class_multiplier", {})
-    if not underwriting_multipliers:
+    bands = mortality.get("underwriting_class_multiplier_by_face_band", [])
+    if not bands:
         raise AssumptionValidationError(
-            "mortality.underwriting_class_multiplier must declare at least one class."
+            "mortality.underwriting_class_multiplier_by_face_band must declare at least one band."
         )
-    for class_name, multiplier in underwriting_multipliers.items():
-        _require_positive(float(multiplier), f"mortality.underwriting_class_multiplier[{class_name}]")
+
+    parsed_bands = []
+    for i, band in enumerate(bands):
+        band_min = float(band["face_amount_min"])
+        band_max = float(band["face_amount_max"])
+        if band_min > band_max:
+            raise AssumptionValidationError(
+                f"underwriting_class_multiplier_by_face_band[{i}]: face_amount_min "
+                f"cannot exceed face_amount_max."
+            )
+        multipliers = band.get("multipliers", {})
+        if not multipliers:
+            raise AssumptionValidationError(
+                f"underwriting_class_multiplier_by_face_band[{i}] must declare at least one class."
+            )
+        for class_name, multiplier in multipliers.items():
+            _require_positive(
+                float(multiplier),
+                f"underwriting_class_multiplier_by_face_band[{i}].multipliers[{class_name}]",
+            )
+        parsed_bands.append({"min": band_min, "max": band_max, "classes": set(multipliers)})
+
+    first_uw_categories = parsed_bands[0]["classes"]
+    for i, band in enumerate(parsed_bands):
+        if band["classes"] != first_uw_categories:
+            raise AssumptionValidationError(
+                "every underwriting_class_multiplier_by_face_band entry must declare the same "
+                f"underwriting classes; band[0]={sorted(first_uw_categories)} vs "
+                f"band[{i}]={sorted(band['classes'])}."
+            )
+
+    sorted_bands = sorted(parsed_bands, key=lambda b: b["min"])
+    product_face_min = float(product["face_amount_min"])
+    product_face_max = float(product["face_amount_max"])
+    if sorted_bands[0]["min"] > product_face_min:
+        raise AssumptionValidationError(
+            "underwriting_class_multiplier_by_face_band does not cover "
+            f"product.face_amount_min ({product_face_min})."
+        )
+    if sorted_bands[-1]["max"] < product_face_max:
+        raise AssumptionValidationError(
+            "underwriting_class_multiplier_by_face_band does not cover "
+            f"product.face_amount_max ({product_face_max})."
+        )
+    for prev_band, next_band in zip(sorted_bands, sorted_bands[1:]):
+        if next_band["min"] != prev_band["max"] + 1:
+            raise AssumptionValidationError(
+                "underwriting_class_multiplier_by_face_band entries must be contiguous with no "
+                f"gap or overlap; band ending {prev_band['max']} is followed by band starting "
+                f"{next_band['min']} (expected {prev_band['max'] + 1})."
+            )
+
+    underwriting_categories = first_uw_categories
 
     _require_positive(int(synthetic["n_policies"]), "synthetic_data.n_policies")
     _require_positive(float(synthetic["face_amount_round_to"]), "synthetic_data.face_amount_round_to")
@@ -254,15 +339,14 @@ def validate_assumptions(raw: dict[str, Any]) -> None:
         raise AssumptionValidationError("synthetic_data.issue_year_min cannot exceed issue_year_max.")
 
     # The underwriting_class_distribution categories must exactly match the
-    # mortality multiplier table's categories -- otherwise the portfolio
+    # face-band multiplier tables' categories -- otherwise the portfolio
     # generator could produce policies with no mortality relativity defined.
     uw_dist_categories = set(synthetic.get("underwriting_class_distribution", {}))
-    uw_mult_categories = set(underwriting_multipliers)
-    if uw_dist_categories != uw_mult_categories:
+    if uw_dist_categories != underwriting_categories:
         raise AssumptionValidationError(
             "synthetic_data.underwriting_class_distribution categories must match "
-            f"mortality.underwriting_class_multiplier categories; "
-            f"got {sorted(uw_dist_categories)} vs {sorted(uw_mult_categories)}."
+            "mortality.underwriting_class_multiplier_by_face_band categories; "
+            f"got {sorted(uw_dist_categories)} vs {sorted(underwriting_categories)}."
         )
 
     for field_name in (
@@ -290,10 +374,20 @@ def validate_assumptions(raw: dict[str, Any]) -> None:
             float(multiplier),
             f"experience_simulation.true_mortality_multiplier_by_duration[{duration}]",
         )
-    _require_positive(
-        float(experience_simulation["true_lapse_multiplier"]),
-        "experience_simulation.true_lapse_multiplier",
-    )
+    true_lapse_by_duration = experience_simulation["true_lapse_multiplier_by_duration"]
+    actual_lapse_sim_durations = {int(k) for k in true_lapse_by_duration}
+    if actual_lapse_sim_durations != expected_sim_durations:
+        missing = sorted(expected_sim_durations - actual_lapse_sim_durations)
+        extra = sorted(actual_lapse_sim_durations - expected_sim_durations)
+        raise AssumptionValidationError(
+            "experience_simulation.true_lapse_multiplier_by_duration must cover "
+            f"every policy year exactly; missing={missing}, extra={extra}"
+        )
+    for duration, multiplier in true_lapse_by_duration.items():
+        _require_positive(
+            float(multiplier),
+            f"experience_simulation.true_lapse_multiplier_by_duration[{duration}]",
+        )
 
 
 def load_assumptions(path: str | Path) -> ProjectAssumptions:

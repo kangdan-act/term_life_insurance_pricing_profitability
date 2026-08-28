@@ -71,6 +71,7 @@ def test_expected_qx_matches_pricing_mortality_curve(assumptions, small_portfoli
         sex=first_policy.sex,
         smoker_status=first_policy.smoker_status,
         underwriting_class=first_policy.underwriting_class,
+        face_amount=first_policy.face_amount,
     )
     policy_exposures = exposures[exposures["policy_id"] == first_policy.policy_id].sort_values("policy_year")
     for i, row in enumerate(policy_exposures.itertuples()):
@@ -82,7 +83,9 @@ def test_overall_ae_close_to_one_when_true_equals_expected(assumptions):
     raw["experience_simulation"]["true_mortality_multiplier_by_duration"] = {
         duration: 1.0 for duration in raw["experience_simulation"]["true_mortality_multiplier_by_duration"]
     }
-    raw["experience_simulation"]["true_lapse_multiplier"] = 1.0
+    raw["experience_simulation"]["true_lapse_multiplier_by_duration"] = {
+        duration: 1.0 for duration in raw["experience_simulation"]["true_lapse_multiplier_by_duration"]
+    }
     neutral = ProjectAssumptions(raw=raw)
 
     portfolio = generate_synthetic_portfolio(neutral, n_policies=5000, random_seed=3)
@@ -100,10 +103,20 @@ def test_overall_ae_reflects_configured_true_multipliers(assumptions):
 
     # config default (Loop 12): true_mortality_multiplier_by_duration is the
     # real SOA-ILEC-derived curve, entirely < 1.0 (0.7354-0.9093), so actual
-    # mortality runs lower than expected; true_lapse_multiplier=0.85 (still
-    # illustrative) means actual lapse also runs lower than expected.
+    # mortality runs lower than expected. true_lapse_multiplier_by_duration
+    # (Loop 12b) is also real -- derived from a real-vs-real risk-class
+    # comparison within the same persistency study -- and is > 1.0 for most
+    # durations (early durations, which dominate portfolio exposure by
+    # policy-year count, run higher) except at duration 20, where it dips
+    # below 1.0; the population-weighted aggregate lands modestly above
+    # 1.0. Unlike the flat-scalar predecessor, this is a genuine, real,
+    # non-monotonic pattern rather than an arbitrary constant -- the test
+    # below checks it materially differs from the trivial 1.0 case (already
+    # covered by test_overall_ae_close_to_one_when_true_equals_expected)
+    # rather than asserting one fixed direction that a future data
+    # refinement could reasonably flip.
     assert result["ae_mortality"] < 1.0
-    assert result["ae_lapse"] < 1.0
+    assert abs(result["ae_lapse"] - 1.0) > 0.02
 
 
 def test_actual_to_expected_by_segment_default_dimensions(assumptions, small_portfolio):

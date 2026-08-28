@@ -192,6 +192,7 @@ def mortality_curve_for_policy(
     sex: str,
     smoker_status: str,
     underwriting_class: str,
+    face_amount: float,
 ) -> list[float]:
     """Full Loop 3 entry point: assumptions + policy characteristics -> q_x curve.
 
@@ -199,11 +200,17 @@ def mortality_curve_for_policy(
     configured underwriting-class multiplier and mortality stress
     multiplier (config/assumptions.yaml -> mortality section), both applied
     multiplicatively as ACTUARIAL_ASSUMPTIONS.md specifies.
+
+    `face_amount` selects which face-amount band's underwriting-class
+    relativity applies (Loop 12b: the relativity now varies by face amount,
+    not just underwriting class -- see
+    mortality.underwriting_class_multiplier_by_face_band in
+    config/assumptions.yaml and docs/DATA_SOURCES.md).
     """
 
     table = load_mortality_table(sex, smoker_status)
     multiplier = (
-        assumptions.underwriting_class_multiplier(underwriting_class)
+        assumptions.underwriting_class_multiplier(underwriting_class, face_amount)
         * assumptions.mortality_stress_multiplier
     )
     return select_qx_series(table, issue_age, assumptions.term_years, multiplier=multiplier)

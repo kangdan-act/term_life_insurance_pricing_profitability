@@ -31,7 +31,8 @@ def assumptions():
 
 def _run_full_pipeline(assumptions, issue_age, sex, smoker_status, uw_class, face_amount):
     qx = mortality_curve_for_policy(
-        assumptions, issue_age=issue_age, sex=sex, smoker_status=smoker_status, underwriting_class=uw_class
+        assumptions, issue_age=issue_age, sex=sex, smoker_status=smoker_status,
+        underwriting_class=uw_class, face_amount=face_amount,
     )
     projection = project_policy(assumptions, issue_age=issue_age, mortality_rates_qx=qx, face_amount=face_amount)
     premium = solve_annual_premium(assumptions, projection)
@@ -74,7 +75,8 @@ def test_zero_lapse_scenario_runs_end_to_end(assumptions):
         assumptions,
         issue_age=40,
         mortality_rates_qx=mortality_curve_for_policy(
-            assumptions, issue_age=40, sex="male", smoker_status="nonsmoker", underwriting_class="Standard"
+            assumptions, issue_age=40, sex="male", smoker_status="nonsmoker",
+            underwriting_class="Standard", face_amount=300_000,
         ),
         face_amount=300_000,
     )

@@ -83,14 +83,20 @@ dependencies are installed (TEST_SPEC.md Gate E).
   status, with an underwriting-class multiplier layered on top (corrected from the 2017 CSO
   originally targeted in Loop 1 -- see `docs/DATA_SOURCES.md`). As of Loop 12, the
   underwriting-class multiplier is derived from real SOA ILEC 2012-2019 Mortality Experience
-  Report A/E data, not an arbitrary guess -- see `docs/DATA_SOURCES.md`.
+  Report A/E data, claims-weighted and face-amount-band-specific (Loop 12b) rather than a flat
+  arbitrary guess -- see `docs/DATA_SOURCES.md`.
 - Portfolio data: synthetic applicant/policy data (Loop 4); Loop 8's "actual" experience is a
-  labeled simulation -- as of Loop 12 its mortality basis is a real, ILEC-derived duration curve,
-  while its lapse basis remains an illustrative scalar (no real experience data was assembled
-  into a full policy-level dataset) -- see `ACTUARIAL_ASSUMPTIONS.md`
+  labeled simulation against a second, separately declared basis -- as of Loop 12/12b both its
+  mortality curve (ILEC-derived) and its lapse curve (derived from a by-risk-class cut of the
+  2009-13 Persistency Update) are real, duration-varying data rather than arbitrary scalars,
+  though neither is a fully independent experience dataset from what the pricing basis already
+  uses -- see `ACTUARIAL_ASSUMPTIONS.md`
 - Lapse: duration-based assumption; as of Loop 12 this is the real SOA "2009-13 US Individual
   Life Persistency Update" 20-Year level term lapse curve, including the real end-of-level-period
   shock lapse -- see `docs/DATA_SOURCES.md`
+- Interest rate: 5.16% annual effective, the real 20-Year Treasury Constant Maturity yield (FRED
+  DGS20) as of 2026-08-25 -- replacing an arbitrary illustrative 4.0% (Loop 12) -- see
+  `docs/DATA_SOURCES.md`
 - Pricing target: solve for a target PV profit margin (closed-form; see `src/life_pricing/premium.py`)
 
 ## Known limitations

@@ -11,12 +11,12 @@ a genuine A/E analytics engine rather than a fabricated one, this module:
 2. Simulates one stochastic *actual* outcome per policy-year of exposure,
    using a separately declared "true" experience basis
    (config/assumptions.yaml: experience_simulation
-   .true_mortality_multiplier_by_duration / true_lapse_multiplier), which
-   deliberately differs from the pricing assumptions -- see
+   .true_mortality_multiplier_by_duration / true_lapse_multiplier_by_duration),
+   which deliberately differs from the pricing assumptions -- see
    ACTUARIAL_ASSUMPTIONS.md -- so the resulting A/E ratios are not
-   trivially 1.0. The mortality multiplier varies by policy duration
-   (real, SOA-ILEC-derived); the lapse multiplier remains a flat
-   illustrative scalar -- see ACTUARIAL_ASSUMPTIONS.md for why.
+   trivially 1.0. Both multipliers vary by policy duration and are derived
+   from real SOA data (ILEC 2012-2019 for mortality, 2009-13 Persistency
+   Update's by-risk-class cut for lapse) -- see docs/DATA_SOURCES.md.
 
 Per AGENTS.md's rule against mixing actual experience with expected
 assumptions without labeling them: every function and output column here is
@@ -103,7 +103,7 @@ def simulate_policy_exposures(
     rng = np.random.default_rng(seed)
 
     true_mortality_multiplier_by_duration = assumptions.true_mortality_multiplier_by_duration
-    true_lapse_multiplier = assumptions.true_lapse_multiplier
+    true_lapse_multiplier_by_duration = assumptions.true_lapse_multiplier_by_duration
     lapse_rates = assumptions.lapse_rates
     term_years = assumptions.term_years
 
@@ -111,7 +111,13 @@ def simulate_policy_exposures(
     rows: list[tuple] = []
 
     for policy in portfolio.itertuples(index=False):
-        cache_key = (policy.issue_age, policy.sex, policy.smoker_status, policy.underwriting_class)
+        cache_key = (
+            policy.issue_age,
+            policy.sex,
+            policy.smoker_status,
+            policy.underwriting_class,
+            policy.face_amount,
+        )
         if cache_key not in mortality_cache:
             mortality_cache[cache_key] = mortality_curve_for_policy(
                 assumptions,
@@ -119,6 +125,7 @@ def simulate_policy_exposures(
                 sex=policy.sex,
                 smoker_status=policy.smoker_status,
                 underwriting_class=policy.underwriting_class,
+                face_amount=policy.face_amount,
             )
         expected_qx_curve = mortality_cache[cache_key]
 
@@ -127,6 +134,7 @@ def simulate_policy_exposures(
             expected_lapse_rate = lapse_rates[t]
 
             true_mortality_multiplier = true_mortality_multiplier_by_duration[t]
+            true_lapse_multiplier = true_lapse_multiplier_by_duration[t]
             true_qx = min(max(expected_qx * true_mortality_multiplier, 0.0), 1.0)
             true_lapse_rate = min(max(expected_lapse_rate * true_lapse_multiplier, 0.0), 1.0)
 

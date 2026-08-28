@@ -88,6 +88,7 @@ def price_policy_under_assumptions(
         sex=sex,
         smoker_status=smoker_status,
         underwriting_class=underwriting_class,
+        face_amount=face_amount,
     )
     projection = project_policy(assumptions, issue_age=issue_age, mortality_rates_qx=qx, face_amount=face_amount)
     premium = solve_annual_premium(assumptions, projection, target_margin=target_margin)
