@@ -77,6 +77,31 @@ def test_discount_factors_positive_and_nonincreasing(assumptions, synthetic_qx):
         assert later <= earlier
 
 
+def test_premium_and_maintenance_discount_factors_positive_and_nonincreasing(assumptions, synthetic_qx):
+    records = _project(assumptions, synthetic_qx)
+    for attr in ("discount_factor_premium", "discount_factor_maintenance"):
+        factors = [getattr(r, attr) for r in records]
+        assert all(f > 0 for f in factors)
+        for earlier, later in zip(factors, factors[1:]):
+            assert later <= earlier
+
+
+def test_premium_discount_factor_is_one_year_ahead_of_claim_discount_factor(assumptions, synthetic_qx):
+    # v_b(t) = (1+i)^-(t-1) = (1+i) * (1+i)^-t = (1+i) * v_e(t) -- beginning-
+    # of-year timing is exactly one year of interest "ahead of" end-of-year
+    # timing, for every policy year.
+    records = _project(assumptions, synthetic_qx)
+    rate = assumptions.discount_rate
+    for r in records:
+        assert r.discount_factor_premium == pytest.approx(r.discount_factor * (1.0 + rate))
+
+
+def test_maintenance_discount_factor_is_between_premium_and_claim(assumptions, synthetic_qx):
+    records = _project(assumptions, synthetic_qx)
+    for r in records:
+        assert r.discount_factor <= r.discount_factor_maintenance <= r.discount_factor_premium
+
+
 def test_expected_claim_equals_death_probability_times_face(assumptions, synthetic_qx):
     records = _project(assumptions, synthetic_qx)
     for r in records:
@@ -116,3 +141,5 @@ def test_zero_interest_gives_unit_discount_factors(assumptions, synthetic_qx):
     records = _project(zero_interest_assumptions, synthetic_qx)
     for r in records:
         assert r.discount_factor == pytest.approx(1.0)
+        assert r.discount_factor_premium == pytest.approx(1.0)
+        assert r.discount_factor_maintenance == pytest.approx(1.0)

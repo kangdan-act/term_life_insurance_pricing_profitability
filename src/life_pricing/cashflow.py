@@ -11,6 +11,27 @@ maintenance) and the part that scales with premium (acquisition % and
 renewal % of premium). life_pricing.premium reuses this exact function
 (evaluated at a unit premium) to derive its closed-form premium solve, so
 the solver and the cash-flow builder can never silently drift apart.
+
+V1.1 timing correction: each nominal cash-flow component for policy year t
+is now discounted with the timing factor that matches when it actually
+occurs (life_pricing.projection's discount_factor / discount_factor_premium
+/ discount_factor_maintenance), rather than one uniform end-of-year factor
+applied to everything -- see life_pricing.projection's module docstring and
+ACTUARIAL_ASSUMPTIONS.md for the full rationale. Concretely:
+    present_value_premium = expected_premium * discount_factor_premium
+    present_value_claim   = expected_death_benefit * discount_factor
+    present_value_expense = (acquisition_expense + premium_related_expense)
+                                 * discount_factor_premium
+                           + maintenance_expense * discount_factor_maintenance
+    present_value_net_cash_flow = present_value_premium
+                                 - present_value_claim
+                                 - present_value_expense
+`net_cash_flow` itself stays a NOMINAL (undiscounted) same-year accounting
+identity (expected_premium - expected_death_benefit - total_expense); it is
+no longer meaningful to multiply it by a single discount factor to get its
+present value, since its three pieces occur at different times within the
+year -- present_value_net_cash_flow is computed from the three PV'd pieces
+directly instead.
 """
 
 from __future__ import annotations
@@ -27,7 +48,13 @@ class CashFlowError(ValueError):
 
 @dataclass(frozen=True)
 class PolicyYearCashFlow:
-    """One row of the full per-policy-year output (PROJECT_SPEC.md section 4)."""
+    """One row of the full per-policy-year output (PROJECT_SPEC.md section 4).
+
+    present_value_premium / present_value_claim / present_value_expense
+    (V1.1) are exposed individually, in addition to the combined
+    present_value_net_cash_flow, since each is now discounted at its own
+    timing -- see this module's docstring.
+    """
 
     policy_year: int
     attained_age: int
@@ -38,12 +65,17 @@ class PolicyYearCashFlow:
     lapse_probability: float
     ending_inforce_probability: float
     discount_factor: float
+    discount_factor_premium: float
+    discount_factor_maintenance: float
     expected_premium: float
     expected_death_benefit: float
     acquisition_expense: float
     maintenance_expense: float
     premium_related_expense: float
     net_cash_flow: float
+    present_value_premium: float
+    present_value_claim: float
+    present_value_expense: float
     present_value_net_cash_flow: float
 
 
@@ -114,7 +146,16 @@ def build_policy_cash_flows(
         )
         total_expense = acquisition_expense + maintenance_expense + premium_related_expense
         net_cash_flow = expected_premium - row.expected_death_benefit - total_expense
-        present_value_net_cash_flow = row.discount_factor * net_cash_flow
+
+        # V1.1: each component gets its own timing (see module docstring)
+        # instead of one uniform end-of-year factor applied to everything.
+        present_value_premium = expected_premium * row.discount_factor_premium
+        present_value_claim = row.expected_death_benefit * row.discount_factor
+        present_value_expense = (
+            (acquisition_expense + premium_related_expense) * row.discount_factor_premium
+            + maintenance_expense * row.discount_factor_maintenance
+        )
+        present_value_net_cash_flow = present_value_premium - present_value_claim - present_value_expense
 
         records.append(
             PolicyYearCashFlow(
@@ -127,12 +168,17 @@ def build_policy_cash_flows(
                 lapse_probability=row.lapse_probability,
                 ending_inforce_probability=row.ending_inforce_probability,
                 discount_factor=row.discount_factor,
+                discount_factor_premium=row.discount_factor_premium,
+                discount_factor_maintenance=row.discount_factor_maintenance,
                 expected_premium=expected_premium,
                 expected_death_benefit=row.expected_death_benefit,
                 acquisition_expense=acquisition_expense,
                 maintenance_expense=maintenance_expense,
                 premium_related_expense=premium_related_expense,
                 net_cash_flow=net_cash_flow,
+                present_value_premium=present_value_premium,
+                present_value_claim=present_value_claim,
+                present_value_expense=present_value_expense,
                 present_value_net_cash_flow=present_value_net_cash_flow,
             )
         )
@@ -146,12 +192,12 @@ def summarize_policy(cash_flows: list[PolicyYearCashFlow]) -> PolicySummary:
     if not cash_flows:
         raise CashFlowError("cash_flows must contain at least one policy year.")
 
-    pv_premiums = sum(r.discount_factor * r.expected_premium for r in cash_flows)
-    pv_claims = sum(r.discount_factor * r.expected_death_benefit for r in cash_flows)
-    pv_expenses = sum(
-        r.discount_factor * (r.acquisition_expense + r.maintenance_expense + r.premium_related_expense)
-        for r in cash_flows
-    )
+    # V1.1: each row already carries its own correctly-timed PV (see
+    # build_policy_cash_flows) -- sum those directly rather than
+    # re-applying a single discount_factor here.
+    pv_premiums = sum(r.present_value_premium for r in cash_flows)
+    pv_claims = sum(r.present_value_claim for r in cash_flows)
+    pv_expenses = sum(r.present_value_expense for r in cash_flows)
     pv_profit = sum(r.present_value_net_cash_flow for r in cash_flows)
     pv_profit_margin = pv_profit / pv_premiums if pv_premiums != 0 else float("nan")
 

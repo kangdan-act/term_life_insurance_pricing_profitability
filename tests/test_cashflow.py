@@ -55,9 +55,42 @@ def test_empty_projection_rejected_by_cashflow_builder(assumptions):
 
 
 def test_present_value_identity_holds_every_year(assumptions, projection):
+    # V1.1: premium, claim, and maintenance expense are discounted at their
+    # own timing (see life_pricing.projection's module docstring), so
+    # present_value_net_cash_flow is no longer discount_factor * net_cash_flow
+    # (that identity only held under V1's single-uniform-timing simplification).
+    # The correct identity is that each row's PV net cash flow equals its own
+    # PV'd premium minus PV'd claim minus PV'd expense, and that each of
+    # those three matches its nominal amount times the matching discount
+    # factor.
     cash_flows = build_policy_cash_flows(assumptions, projection, annual_premium=1500.0)
     for r in cash_flows:
-        assert r.present_value_net_cash_flow == pytest.approx(r.discount_factor * r.net_cash_flow)
+        assert r.present_value_premium == pytest.approx(r.expected_premium * r.discount_factor_premium)
+        assert r.present_value_claim == pytest.approx(r.expected_death_benefit * r.discount_factor)
+        expected_pv_expense = (
+            (r.acquisition_expense + r.premium_related_expense) * r.discount_factor_premium
+            + r.maintenance_expense * r.discount_factor_maintenance
+        )
+        assert r.present_value_expense == pytest.approx(expected_pv_expense)
+        assert r.present_value_net_cash_flow == pytest.approx(
+            r.present_value_premium - r.present_value_claim - r.present_value_expense
+        )
+
+
+def test_discount_factor_premium_year_one_is_undiscounted(assumptions, projection):
+    # V1.1: premium (and acquisition-related expense) is paid at the
+    # beginning of the policy year, so year 1's factor should be exactly
+    # 1.0 -- it occurs at issue, not one year later.
+    year_one = next(r for r in projection if r.policy_year == 1)
+    assert year_one.discount_factor_premium == pytest.approx(1.0)
+
+
+def test_discount_factor_maintenance_is_between_premium_and_claim_factors(assumptions, projection):
+    # Mid-year timing should discount less than end-of-year but more than
+    # beginning-of-year, for every policy year, whenever the discount rate
+    # is positive.
+    for r in projection:
+        assert r.discount_factor <= r.discount_factor_maintenance <= r.discount_factor_premium
 
 
 def test_zero_premium_leaves_only_claims_and_expenses(assumptions, projection):

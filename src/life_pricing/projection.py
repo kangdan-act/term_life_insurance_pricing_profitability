@@ -8,6 +8,29 @@ Premiums, expenses, and net cash flow are intentionally out of scope here
 (they belong to Loops 5-7) so this module has exactly one job: turn a
 mortality curve plus the configured lapse/interest assumptions into a
 per-policy-year decrement and discounting schedule.
+
+V1.1 timing correction: PROJECT_SPEC.md section 2 has always specified
+"Premium mode: Annual, beginning of policy year while in force" and
+"Benefit timing: End of policy year of death" -- but V1's code discounted
+every cash-flow component with one uniform end-of-year factor
+`v_t = (1+i)^-t`, silently ignoring the beginning-of-year premium timing
+the spec itself declared. This module now computes THREE discount-factor
+columns instead of one, matching each cash-flow component's own timing
+(see PROJECT_SPEC.md section 7 and ACTUARIAL_ASSUMPTIONS.md for the full
+rationale and the explicit choice of mid-year timing for maintenance
+expense):
+
+- `discount_factor` (unchanged formula, v_t = (1+i)^-t): end-of-year --
+  used for the death benefit/claim, per section 2's benefit timing.
+- `discount_factor_premium` (v_t = (1+i)^-(t-1)): beginning-of-year --
+  used for the premium itself, and for every expense component that is
+  incurred at the same moment premium is collected (the acquisition fixed
+  cost and the acquisition/renewal percent-of-premium expense, both
+  incurred at issue/renewal).
+- `discount_factor_maintenance` (v_t = (1+i)^-(t-0.5)): mid-year -- used
+  for the ongoing per-in-force-policy maintenance expense, modeling it as
+  spread through the policy year rather than concentrated at either
+  endpoint.
 """
 
 from __future__ import annotations
@@ -24,7 +47,12 @@ class ProjectionInputError(ValueError):
 
 @dataclass(frozen=True)
 class PolicyYearProjection:
-    """One row of the per-policy-year projection (PROJECT_SPEC.md section 4)."""
+    """One row of the per-policy-year projection (PROJECT_SPEC.md section 4).
+
+    Three discount factors are exposed (V1.1) because premium, claim, and
+    maintenance expense are no longer assumed to occur at the same moment
+    within the policy year -- see this module's docstring.
+    """
 
     policy_year: int
     attained_age: int
@@ -35,6 +63,8 @@ class PolicyYearProjection:
     lapse_probability: float
     ending_inforce_probability: float
     discount_factor: float
+    discount_factor_premium: float
+    discount_factor_maintenance: float
     expected_death_benefit: float
 
 
@@ -81,7 +111,9 @@ def project_policy(
         D_t = I_t * q_t
         L_t = I_t * (1 - q_t) * l_t
         I_(t+1) = I_t * (1 - q_t) * (1 - l_t)
-        v_t = (1 + i)^(-t)
+        v_t = (1 + i)^(-t)                    [end-of-year; claim timing]
+        v_t^premium = (1 + i)^(-(t-1))        [beginning-of-year; V1.1]
+        v_t^maintenance = (1 + i)^(-(t-0.5))  [mid-year; V1.1]
         Claim_t = D_t * Face
 
     `mortality_rates_qx` must be supplied by the caller (one q_x per policy
@@ -109,6 +141,8 @@ def project_policy(
         lapse_probability = beginning_inforce * (1.0 - q_t) * l_t
         ending_inforce = beginning_inforce * (1.0 - q_t) * (1.0 - l_t)
         discount_factor = (1.0 + discount_rate) ** (-t)
+        discount_factor_premium = (1.0 + discount_rate) ** (-(t - 1))
+        discount_factor_maintenance = (1.0 + discount_rate) ** (-(t - 0.5))
         expected_death_benefit = death_probability * face_amount
 
         records.append(
@@ -122,6 +156,8 @@ def project_policy(
                 lapse_probability=lapse_probability,
                 ending_inforce_probability=ending_inforce,
                 discount_factor=discount_factor,
+                discount_factor_premium=discount_factor_premium,
+                discount_factor_maintenance=discount_factor_maintenance,
                 expected_death_benefit=expected_death_benefit,
             )
         )
